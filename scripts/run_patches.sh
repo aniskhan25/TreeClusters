@@ -37,7 +37,6 @@ else
     exit 1
 fi
 
-
 # Set necessary environment variables for inference.
 export DATA_PATH="$TREECLUST_DATA_PATH/DeadTrees_2023_Anis_ShapeStudy.gpkg"
 export OUTPUT_DIR="$TREECLUST_DATA_PATH/output_shape"
@@ -49,13 +48,13 @@ module load pytorch/2.4
 export PATH="/usr/bin:/bin"
 
 # Activate virtual environment
-if [ -d "$TREEMORT_VENV_PATH" ]; then
-    echo "[INFO] Activating virtual environment at $TREEMORT_VENV_PATH"
-    source "$TREEMORT_VENV_PATH/bin/activate"
+if [ -d "$TREECLUST_VENV_PATH" ]; then
+    echo "[INFO] Activating virtual environment at $TREECLUST_VENV_PATH"
+    source "$TREECLUST_VENV_PATH/bin/activate"
     # Prepend virtual environment's bin directory to PATH
-    export PATH="$TREEMORT_VENV_PATH/bin:$PATH"
+    export PATH="$TREECLUST_VENV_PATH/bin:$PATH"
 else
-    echo "[ERROR] Virtual environment not found at $TREEMORT_VENV_PATH"
+    echo "[ERROR] Virtual environment not found at $TREECLUST_VENV_PATH"
     exit 1
 fi
 
