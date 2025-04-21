@@ -108,16 +108,16 @@ class PatchProcessor:
             for info in collections_info.values():
                 search = self.catalog.search(
                     intersects={"type": "Point", "coordinates": [lon, lat]},
-                    collections=[info["collection"]],
-                    datetime=f"{info["year_start"]}-01-01/{info["year_end"]}-12-31",
+                    collections=[info['collection']],
+                    datetime=f"{info['year_start']}-01-01/{info['year_end']}-12-31",
                 )
                 items = search.item_collection()
 
                 if items:
                     results.append(items[0])  # Assume the first item is relevant
-                    logger.debug(f"Found item in collection {info["collection"]}.")
+                    logger.debug(f"Found item in collection {info['collection']}.")
                 else:
-                    logger.debug(f"No items found in collection {info["collection"]}.")
+                    logger.debug(f"No items found in collection {info['collection']}.")
         except pystac_client.exceptions.APIError as e:
             logger.error(f"STAC query failed for point ({lon}, {lat}): {e}")
         return results
