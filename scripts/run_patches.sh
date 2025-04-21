@@ -5,8 +5,8 @@
 #SBATCH --output=output/stdout/%A_%a.out
 #SBATCH --error=output/stderr/%A_%a.err
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=6
-#SBATCH --time=05:00:00
+#SBATCH --cpus-per-task=12
+#SBATCH --time=15:00:00
 #SBATCH --partition=small
 #SBATCH --mem-per-cpu=6000
 
