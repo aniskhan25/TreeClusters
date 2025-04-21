@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 from affine import Affine
 from rasterio.warp import transform
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 from rtree import index as rtree_index
 from shapely.geometry import Point, box
+import argparse
 
 
 class PatchProcessor:
@@ -55,8 +57,24 @@ class PatchProcessor:
 
         self.lock = threading.Lock()
 
-    def load_cluster_data(self, num_samples=None):
-        self.cluster_df = pd.read_csv(self.data_path)
+    def load_cluster_data(self, num_samples=None, source_type="csv", gpkg_layer=None):
+        if source_type == "csv":
+            self.cluster_df = pd.read_csv(self.data_path)
+        elif source_type == "gpkg":
+            gdf = gpd.read_file(self.data_path, layer=gpkg_layer) if gpkg_layer else gpd.read_file(self.data_path)
+            gdf = gdf.to_crs(epsg=self.epsg)
+            gdf["x"] = gdf.geometry.x
+            gdf["y"] = gdf.geometry.y
+
+            # Compute cluster IDs based on offset grid
+            gdf["cluster_id"] = (
+                np.floor(gdf["x"] / (self.offset * self.resolution)).astype(int).astype(str) + "_" +
+                np.floor(gdf["y"] / (self.offset * self.resolution)).astype(int).astype(str)
+            )
+
+            self.cluster_df = gdf.drop(columns="geometry")
+        else:
+            raise ValueError("Unsupported source_type. Use 'csv' or 'gpkg'.")
 
         def generate_patch_id(row):
             unique_str = f"{row['x']}_{row['y']}"
@@ -71,7 +89,7 @@ class PatchProcessor:
         if num_samples:
             self.cluster_df = self.cluster_df.sample(n=num_samples, random_state=7).reset_index(drop=True)
 
-        logger.info("Survey data loaded successfully.")
+        logger.debug("Survey data loaded successfully.")
 
     def connect_to_catalog_with_retry(self, retries=3, delay=5):
         for attempt in range(retries):
@@ -277,7 +295,7 @@ class PatchProcessor:
                 ):
                     assigned_patch_id = existing_patch_id
                     assigned_patch_filename = patch_filename
-                    logger.info(
+                    logger.debug(
                         f"Survey point {existing_patch_id} assigned to existing patch {os.path.basename(patch_filename)} with safe margin."
                     )
                     break
@@ -300,7 +318,7 @@ class PatchProcessor:
         try:
             self.create_extended_patch(lon, lat, items, patch_id, output_dir, collection_names)
             self.record_mapping(patch_id, patch_id + '.tif', patch_id, x, y)
-            logger.info(f"Extracted patches for survey point {patch_id}.")
+            logger.debug(f"Extracted patches for survey point {patch_id}.")
 
             patch_extent = self.patch_size * self.resolution
             patch_footprint = box(x - patch_extent, y - patch_extent, x + patch_extent, y + patch_extent)
@@ -338,25 +356,30 @@ class PatchProcessor:
                     )
                 writer.writerow([sequence_num, patch_file, survey_idx, x, y])
 
-            logger.info(f"Metadata recorded: TreeID={sequence_num}, Filename={patch_file}")
+            logger.debug(f"Metadata recorded: TreeID={sequence_num}, Filename={patch_file}")
 
     def setup_mapping_file(self, output_dir):
         os.makedirs(output_dir, exist_ok=True)
         self.mapping_file = os.path.join(output_dir, "mapping.csv")
         if os.path.isfile(self.mapping_file):
             self.processed_sequences = pd.read_csv(self.mapping_file)["TreeID"].tolist()
-            logger.info(f"Loaded {len(self.processed_sequences)} processed sequences from mapping file.")
+            logger.debug(f"Loaded {len(self.processed_sequences)} processed sequences from mapping file.")
         else:
             self.processed_sequences = []
-            logger.info(f"No existing mapping file found. A new one will be created at {self.mapping_file}.")
+            logger.debug(f"No existing mapping file found. A new one will be created at {self.mapping_file}.")
 
 
 def main():
-    data_path = "./data/clusters.csv"
-    output_dir = "./output"
+    parser = argparse.ArgumentParser(description="Process tree cluster data and extract patches.")
+    parser.add_argument("--data-path", required=True, help="Path to the input data file (e.g., .gpkg or .csv).")
+    parser.add_argument("--output-dir", required=True, help="Directory to save the output patches and mapping file.")
+    args = parser.parse_args()
+
+    data_path = args.data_path
+    output_dir = args.output_dir
 
     catalog_url = "https://paituli.csc.fi/geoserver/ogc/stac/v1"
-    patch_size = 256
+    patch_size = 1200
     buffer = 5000
     resolution = 0.25  # in meters
     epsg = 3067
@@ -391,7 +414,7 @@ def main():
         epsg=epsg,
     )
 
-    processor.load_cluster_data()
+    processor.load_cluster_data(source_type="gpkg")
     # processor.load_cluster_data(num_samples=1)  # USE ONLY FOR DEBUGGING
 
     processor.connect_to_catalog_with_retry()
@@ -420,7 +443,7 @@ def main():
                 # Process the survey point since no file exists yet
                 processor.process_survey_point(idx, output_dir, collections_info)
             else:
-                logger.info(f"Skipping processing for survey point {patch_id} because file already exists.")
+                logger.debug(f"Skipping processing for survey point {patch_id} because file already exists.")
 
         except Exception as e:
             logger.error(f"Error processing survey point {patch_id}: {e}")
@@ -429,11 +452,11 @@ def main():
         futures = []
         total_rows = len(processor.cluster_df)
         for idx, row in processor.cluster_df.iterrows():
-            logger.info(f"Submitting survey point {idx} out of {total_rows} ...")
+            logger.debug(f"Submitting survey point {idx} out of {total_rows} ...")
             future = executor.submit(process_cluster_row, idx, row)
             futures.append(future)
 
-        for future in as_completed(futures):
+        for future in tqdm(as_completed(futures), total=total_rows, desc="Processing survey points"):
             try:
                 future.result()
             except Exception as exc:
@@ -442,3 +465,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# --data-path "/Users/anisr/Documents/TreeClusters/data/DeadTrees_2023_Anis_ShapeStudy.gpkg"
+# --output-dir = "./output_shape"
