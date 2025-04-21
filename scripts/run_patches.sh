@@ -28,10 +28,10 @@ export TREECLUST_REPO_PATH="/users/rahmanan/TreeClusters"
 # Set global environment variables based on HPC type.
 if [ "$HPC_TYPE" == "puhti" ]; then
     export TREECLUST_VENV_PATH="/projappl/project_2004205/rahmanan/venv"
-    export TREECLUST_DATA_PATH="/scratch/project_2008436/rahmanan/tree_clusters/DeadTrees_2023_Anis_ShapeStudy.gpkg"
+    export TREECLUST_DATA_PATH="/scratch/project_2008436/rahmanan/tree_clusters/data"
 elif [ "$HPC_TYPE" == "lumi" ]; then
     export TREECLUST_VENV_PATH="/projappl/project_462000684/rahmanan/venv"
-    export TREECLUST_DATA_PATH="/scratch/project_462000684/rahmanan/tree_clusters/DeadTrees_2023_Anis_ShapeStudy.gpkg"
+    export TREECLUST_DATA_PATH="/scratch/project_462000684/rahmanan/tree_clusters/data"
 else
     echo "Error: Unsupported HPC_TYPE '$HPC_TYPE'."
     exit 1
