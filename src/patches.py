@@ -4,6 +4,7 @@ import time
 import logging
 import hashlib
 import rasterio
+import argparse
 import threading
 import pystac_client
 
@@ -24,7 +25,6 @@ logger = logging.getLogger(__name__)
 
 from rtree import index as rtree_index
 from shapely.geometry import Point, box
-import argparse
 
 
 class PatchProcessor:

@@ -29,9 +29,11 @@ export TREECLUST_REPO_PATH="/users/rahmanan/TreeClusters"
 if [ "$HPC_TYPE" == "puhti" ]; then
     export TREECLUST_VENV_PATH="/projappl/project_2004205/rahmanan/venv"
     export TREECLUST_DATA_PATH="/scratch/project_2008436/rahmanan/tree_clusters/data"
+    export TREECLUST_OUTPUT_PATH="/scratch/project_2008436/rahmanan/tree_clusters/output"
 elif [ "$HPC_TYPE" == "lumi" ]; then
     export TREECLUST_VENV_PATH="/projappl/project_462000684/rahmanan/venv"
     export TREECLUST_DATA_PATH="/scratch/project_462000684/rahmanan/tree_clusters/data"
+    export TREECLUST_OUTPUT_PATH="/scratch/project_462000684/rahmanan/tree_clusters/output"
 else
     echo "Error: Unsupported HPC_TYPE '$HPC_TYPE'."
     exit 1
@@ -39,7 +41,6 @@ fi
 
 # Set necessary environment variables for inference.
 export DATA_PATH="$TREECLUST_DATA_PATH/DeadTrees_2023_Anis_ShapeStudy.gpkg"
-export OUTPUT_DIR="$TREECLUST_DATA_PATH/output_shape"
 
 module use /appl/local/csc/modulefiles/
 module load pytorch/2.4
@@ -62,7 +63,7 @@ fi
 echo "Current PATH: \$PATH"
 
 # Run the Python script using the virtual environment's python3
-srun python3 "$TREECLUST_REPO_PATH/src/patches.py" --data-path "$DATA_PATH" --output-dir "$OUTPUT_DIR"
+srun python3 "$TREECLUST_REPO_PATH/src/patches.py" --data-path "$DATA_PATH" --output-dir "$TREECLUST_OUTPUT_PATH"
 
 EXIT_STATUS=$?
 if [ "${EXIT_STATUS:-0}" -ne 0 ]; then

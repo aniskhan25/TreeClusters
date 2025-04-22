@@ -1,15 +1,13 @@
 
+import argparse
+
 import numpy as np
 import pandas as pd
-
 import geopandas as gpd
-import numpy as np
-from sklearn.cluster import DBSCAN
-from shapely.geometry import MultiPoint
 import matplotlib.pyplot as plt
 
-
 from scipy.spatial import cKDTree, ConvexHull
+from shapely.geometry import MultiPoint
 from sklearn.cluster import DBSCAN
 
 
@@ -82,8 +80,14 @@ def compute_dbscan_clustering(df: pd.DataFrame, eps: float = 10, min_samples: in
     return df
 
 def main():
+    parser = argparse.ArgumentParser(description="Process tree cluster data and extract patches.")
+    parser.add_argument("--data-path", required=True, help="Path to the input data file (e.g., .gpkg or .csv).")
+    args = parser.parse_args()
+
+    data_path = args.data_path
+
     # Load the GeoPackage file
-    data = gpd.read_file('./data/DeadTrees_2023_Anis_ShapeStudy.gpkg')
+    data = gpd.read_file(data_path)
 
     # Check Coordinate Reference System (CRS) and reproject if necessary
     if data.crs.is_geographic:
@@ -99,3 +103,14 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+'''
+
+Usage:
+
+python ./src/clusters.py --data-path ./data/DeadTrees_2023_Anis_ShapeStudy.gpkg
+
+scp data/clusters.csv rahmanan@lumi.csc.fi:/scratch/project_462000684/rahmanan/tree_clusters/data/
+
+'''
