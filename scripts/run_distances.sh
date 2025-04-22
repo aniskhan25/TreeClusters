@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=patch-downloader
+#SBATCH --job-name=compute-distance
 #SBATCH --account=project_462000684
 #SBATCH --output=output/stdout/%A_%a.out
 #SBATCH --error=output/stderr/%A_%a.err
@@ -34,7 +34,7 @@ else
 fi
 
 # Set necessary environment variables for inference.
-export DATA_PATH="$TREECLUST_DATA_PATH/DeadTrees_2023_Anis_ShapeStudy.gpkg"
+export DATA_PATH="$TREECLUST_DATA_PATH/clusters.csv"
 
 module use /appl/local/csc/modulefiles/
 module load pytorch/2.4
@@ -57,7 +57,7 @@ fi
 echo "Current PATH: \$PATH"
 
 # Run the Python script using the virtual environment's python3
-srun python3 "$TREECLUST_REPO_PATH/src/patches.py" --data-path "$DATA_PATH" --output-dir "$TREECLUST_OUTPUT_PATH"
+srun python3 "$TREECLUST_REPO_PATH/src/distances.py" --data-path "$DATA_PATH" --output-dir "$TREECLUST_OUTPUT_PATH"
 
 EXIT_STATUS=$?
 if [ "${EXIT_STATUS:-0}" -ne 0 ]; then

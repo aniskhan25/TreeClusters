@@ -1,18 +1,23 @@
 import os
 import hashlib
 import logging
+import argparse
+import rasterio
+
 import numpy as np
 import pandas as pd
 import geopandas as gpd
-from scipy.ndimage import binary_closing, binary_opening, binary_erosion, distance_transform_edt
-from skimage.morphology import remove_small_holes
-from skimage.measure import label
-from multiprocessing import Pool, cpu_count
+
 from tqdm import tqdm  # For progress bar
-import rasterio
+from scipy.ndimage import binary_closing, binary_opening, binary_erosion, distance_transform_edt
+from skimage.measure import label
+from skimage.morphology import remove_small_holes
 from rasterio.warp import reproject, Resampling  # Explicitly import warp functions
+from multiprocessing import Pool, cpu_count
+
 
 logger = logging.getLogger(__name__)
+
 
 def chamfer_distance_transform(binary_image, weights=(3, 4)):
     h_weight, d_weight = weights
@@ -23,34 +28,42 @@ def chamfer_distance_transform(binary_image, weights=(3, 4)):
             if dist[i, j] == np.inf:
                 neighbors = []
                 if i > 0:
-                    neighbors.append(dist[i-1, j] + h_weight)
+                    neighbors.append(dist[i - 1, j] + h_weight)
                     if j > 0:
-                        neighbors.append(dist[i-1, j-1] + d_weight)
+                        neighbors.append(dist[i - 1, j - 1] + d_weight)
                     if j < cols - 1:
-                        neighbors.append(dist[i-1, j+1] + d_weight)
+                        neighbors.append(dist[i - 1, j + 1] + d_weight)
                 if j > 0:
-                    neighbors.append(dist[i, j-1] + h_weight)
+                    neighbors.append(dist[i, j - 1] + h_weight)
                 if neighbors:
                     dist[i, j] = min(neighbors)
-    for i in range(rows-1, -1, -1):
-        for j in range(cols-1, -1, -1):
+    for i in range(rows - 1, -1, -1):
+        for j in range(cols - 1, -1, -1):
             if dist[i, j] != 0:
                 neighbors = [dist[i, j]]
                 if i < rows - 1:
-                    neighbors.append(dist[i+1, j] + h_weight)
+                    neighbors.append(dist[i + 1, j] + h_weight)
                     if j > 0:
-                        neighbors.append(dist[i+1, j-1] + d_weight)
+                        neighbors.append(dist[i + 1, j - 1] + d_weight)
                     if j < cols - 1:
-                        neighbors.append(dist[i+1, j+1] + d_weight)
+                        neighbors.append(dist[i + 1, j + 1] + d_weight)
                 if j < cols - 1:
-                    neighbors.append(dist[i, j+1] + h_weight)
+                    neighbors.append(dist[i, j + 1] + h_weight)
                 dist[i, j] = min(neighbors)
     return dist
 
+
 def distance_to_forest_edge(
-    longitude, latitude, vmi_raster_path, dem_raster_path, 
-    window_size=400, threshold=30, min_patch_pixels=20, max_hole_pixels=20, 
-    weight_range=(1.05, 1.10), south_facing_range=(135, 225)
+    longitude,
+    latitude,
+    vmi_raster_path,
+    dem_raster_path,
+    window_size=400,
+    threshold=30,
+    min_patch_pixels=20,
+    max_hole_pixels=20,
+    weight_range=(1.05, 1.10),
+    south_facing_range=(135, 225),
 ):
     with rasterio.open(vmi_raster_path) as vmi_src, rasterio.open(dem_raster_path) as dem_src:
         row, col = vmi_src.index(longitude, latitude)
@@ -62,7 +75,15 @@ def distance_to_forest_edge(
         dem = dem_src.read(1, window=dem_window)
         dem_transform = dem_src.window_transform(dem_window)
         dem_resampled = np.zeros_like(canopy_cover, dtype=np.float32)
-        reproject(source=dem, destination=dem_resampled, src_transform=dem_transform, src_crs=dem_src.crs, dst_transform=vmi_transform, dst_crs=vmi_src.crs, resampling=Resampling.bilinear)
+        reproject(
+            source=dem,
+            destination=dem_resampled,
+            src_transform=dem_transform,
+            src_crs=dem_src.crs,
+            dst_transform=vmi_transform,
+            dst_crs=vmi_src.crs,
+            resampling=Resampling.bilinear,
+        )
         dy, dx = np.gradient(dem_resampled, vmi_pixel_size)
         aspect_rad = np.arctan2(-dy, dx)
         aspect_deg = np.degrees(aspect_rad) % 360
@@ -85,14 +106,18 @@ def distance_to_forest_edge(
         dist_south = chamfer_distance_transform(1 - south_facing_edges)
         aspect_center = (south_facing_range[0] + south_facing_range[1]) / 2
         aspect_deviation = np.abs(aspect_deg - aspect_center) / ((south_facing_range[1] - south_facing_range[0]) / 2)
-        weight_factor = np.where(south_facing_mask, weight_range[0] + (weight_range[1] - weight_range[0]) * (1 - np.minimum(aspect_deviation, 1)), 1.0)
+        weight_factor = np.where(
+            south_facing_mask,
+            weight_range[0] + (weight_range[1] - weight_range[0]) * (1 - np.minimum(aspect_deviation, 1)),
+            1.0,
+        )
         adjusted_dist = np.where(dist_south == dist_all, dist_all * weight_factor, dist_all)
         adjusted_dist *= vmi_pixel_size
         # adjusted_dist = np.minimum(adjusted_dist, 300)  # Cap at patch size
         row_in_window = row - int(window.row_off)
         col_in_window = col - int(window.col_off)
         return adjusted_dist[row_in_window, col_in_window]
- 
+
 
 def distance_to_nearest_wetland(dtw_path, longitude, latitude, wetland_threshold=1):
     try:
@@ -101,20 +126,20 @@ def distance_to_nearest_wetland(dtw_path, longitude, latitude, wetland_threshold
 
             pixel_size = src.res[0]
             rows, cols = dtw.shape
-            
+
             row, col = src.index(longitude, latitude)
-            
+
             row = max(0, min(row, rows - 1))
             col = max(0, min(col, cols - 1))
-            
-            # DTW index threshold (in meters) below which a pixel is considered wet. 
+
+            # DTW index threshold (in meters) below which a pixel is considered wet.
             # Default is 1 (i.e., pixels with DTW <1m are "wet").
             wetland_mask = (dtw < wetland_threshold).astype(np.uint8)
-            
+
             distance_to_wetland = distance_transform_edt(1 - wetland_mask, sampling=[pixel_size, pixel_size])
-            
+
             distance_to_wetland = np.maximum(distance_to_wetland, 1)
-            
+
             return distance_to_wetland[row, col]
     except Exception as e:
         logger.error(f"Error computing distance: {e}")
@@ -140,6 +165,7 @@ def distance_to_rocky_outcrop(dem_path, target_longitude, target_latitude, rock_
     except Exception as e:
         logger.error(f"Error in distance_to_rocky_outcrop: {e}")
         return None
+
 
 def compute_all_distances(args):
     row, output_dir = args
@@ -192,6 +218,7 @@ def compute_all_distances(args):
 
     return results
 
+
 def add_distance_column_to_cluster_df(cluster_df, mapping_csv_path, output_dir, collection_names, num_workers=None):
     mappings = pd.read_csv(mapping_csv_path)
     if 'TreeID' in mappings.columns:
@@ -206,31 +233,37 @@ def add_distance_column_to_cluster_df(cluster_df, mapping_csv_path, output_dir, 
     args = [(row, output_dir) for row in rows]
 
     with Pool(processes=num_workers) as pool:
-        results = list(tqdm(
-            pool.imap(compute_all_distances, args),
-            total=len(merged_df),
-            desc="Computing distances"
-        ))
+        results = list(tqdm(pool.imap(compute_all_distances, args), total=len(merged_df), desc="Computing distances"))
 
     distances_df = pd.DataFrame(results, index=merged_df.index)
     merged_df = pd.concat([merged_df, distances_df], axis=1)
     return merged_df
 
+
 def load_cluster_data(data_path):
     cluster_df = pd.read_csv(data_path)
+
     def generate_patch_id(row):
         unique_str = f"{row['x']}_{row['y']}"
         return hashlib.md5(unique_str.encode()).hexdigest()[:8]
+
     cluster_df["patch_id"] = cluster_df.apply(generate_patch_id, axis=1)
     return cluster_df
 
-if __name__ == "__main__":
-    cluster_csv_path = "./data/clusters.csv"
-    output_dir = "./output"
+
+def main():
+    parser = argparse.ArgumentParser(description="Process tree cluster data and extract patches.")
+    parser.add_argument("--data-path", required=True, help="Path to the input data file (e.g., .gpkg or .csv).")
+    parser.add_argument("--output-dir", required=True, help="Directory to save the output patches and mapping file.")
+    args = parser.parse_args()
+
+    data_path = args.data_path
+    output_dir = args.output_dir
+
     collection_names = ["dtw", "dem", "vmi"]
     mapping_csv_path = os.path.join(output_dir, "mapping.csv")
 
-    cluster_df = load_cluster_data(cluster_csv_path)
+    cluster_df = load_cluster_data(data_path)
     cluster_df_with_distance = add_distance_column_to_cluster_df(
         cluster_df, mapping_csv_path, output_dir, collection_names
     )
@@ -238,3 +271,17 @@ if __name__ == "__main__":
     output_csv = os.path.join(output_dir, "clusters_with_distance.csv")
     cluster_df_with_distance.to_csv(output_csv, index=False)
     logger.info(f"Saved updated cluster data with distances to {output_csv}")
+
+
+if __name__ == "__main__":
+    main()
+
+'''
+
+Usage:
+
+python ./src/distances.py --data-path ./data/clusters.csv --output-dir ./output
+
+sbatch ~/TreeClusters/scripts/run_distances.sh lumi
+
+'''

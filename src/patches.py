@@ -473,6 +473,6 @@ Usage:
 
 python ./src/patches.py --data-path ./data/DeadTrees_2023_Anis_ShapeStudy.gpkg --output-dir ./output_shape
 
-sbatch ~/TreeClusters/scripts/run_patches.sh lumi finland
+sbatch ~/TreeClusters/scripts/run_patches.sh lumi
 
 '''
