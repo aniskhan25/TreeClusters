@@ -62,7 +62,7 @@ fi
 echo "Current PATH: \$PATH"
 
 # Run the Python script using the virtual environment's python3
-srun python3 "$TREECLUST_REPO_PATH/get_patches.py" --data-path "$DATA_PATH" --output-dir "$OUTPUT_DIR"
+srun python3 "$TREECLUST_REPO_PATH/src/patches.py" --data-path "$DATA_PATH" --output-dir "$OUTPUT_DIR"
 
 EXIT_STATUS=$?
 if [ "${EXIT_STATUS:-0}" -ne 0 ]; then
