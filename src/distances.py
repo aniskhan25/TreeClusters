@@ -53,6 +53,7 @@ def chamfer_distance_transform(binary_image, weights=(3, 4)):
     return dist
 
 
+
 def distance_to_forest_edge(
     longitude,
     latitude,
@@ -66,17 +67,30 @@ def distance_to_forest_edge(
     south_facing_range=(135, 225),
 ):
     with rasterio.open(vmi_raster_path) as vmi_src, rasterio.open(dem_raster_path) as dem_src:
+        # Get row, col indices for the point
         row, col = vmi_src.index(longitude, latitude)
-
+        
+        # Ensure the point is within the raster bounds
+        if row < 0 or row >= vmi_src.height or col < 0 or col >= vmi_src.width:
+            return np.nan
+            
         # Calculate window boundaries
-        window_col_start = max(0, col - window_size // 2)
-        window_row_start = max(0, row - window_size // 2)
-        window_col_end = min(vmi_src.width, window_col_start + window_size)
-        window_row_end = min(vmi_src.height, window_row_start + window_size)
-
+        half_window = window_size // 2
+        window_col_start = max(0, col - half_window)
+        window_row_start = max(0, row - half_window)
+        window_col_end = min(vmi_src.width, col + half_window)
+        window_row_end = min(vmi_src.height, row + half_window)
+        
+        # Ensure window has valid dimensions
+        if window_col_end <= window_col_start or window_row_end <= window_row_start:
+            return np.nan
+        
         # Adjust window size if near boundaries
         window = rasterio.windows.Window(
-            window_col_start, window_row_start, window_col_end - window_col_start, window_row_end - window_row_start
+            window_col_start,
+            window_row_start,
+            window_col_end - window_col_start,
+            window_row_end - window_row_start
         )
         canopy_cover = vmi_src.read(1, window=window)
         vmi_transform = vmi_src.window_transform(window)
@@ -127,7 +141,8 @@ def distance_to_forest_edge(
         row_in_window = row - int(window.row_off)
         col_in_window = col - int(window.col_off)
         return adjusted_dist[row_in_window, col_in_window]
-
+  
+\
 
 def distance_to_nearest_wetland(dtw_path, longitude, latitude, wetland_threshold=1):
     try:

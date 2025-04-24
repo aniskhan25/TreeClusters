@@ -196,7 +196,7 @@ class PatchProcessor:
             # Remove deprecated width and height parameters
             window = rasterio.windows.from_bounds(left, bottom, right, top, src.transform)
 
-            patch = src.read(window=window)
+            patch = src.read(window=window, boundless=True, fill_value=src.nodata)
             new_transform = src.window_transform(window)
 
             return patch, new_transform, src.crs
