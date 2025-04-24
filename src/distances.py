@@ -67,7 +67,17 @@ def distance_to_forest_edge(
 ):
     with rasterio.open(vmi_raster_path) as vmi_src, rasterio.open(dem_raster_path) as dem_src:
         row, col = vmi_src.index(longitude, latitude)
-        window = rasterio.windows.Window(col - window_size // 2, row - window_size // 2, window_size, window_size)
+
+        # Calculate window boundaries
+        window_col_start = max(0, col - window_size // 2)
+        window_row_start = max(0, row - window_size // 2)
+        window_col_end = min(vmi_src.width, window_col_start + window_size)
+        window_row_end = min(vmi_src.height, window_row_start + window_size)
+
+        # Adjust window size if near boundaries
+        window = rasterio.windows.Window(
+            window_col_start, window_row_start, window_col_end - window_col_start, window_row_end - window_row_start
+        )
         canopy_cover = vmi_src.read(1, window=window)
         vmi_transform = vmi_src.window_transform(window)
         vmi_pixel_size = vmi_src.res[0]
@@ -187,9 +197,7 @@ def compute_all_distances(args):
             results['distance_to_forest_edge'] = None
         else:
             try:
-                results['distance_to_forest_edge'] = distance_to_forest_edge(
-                    row['x'], row['y'], candidate_vmi, candidate_dem, window_size=20
-                )
+                results['distance_to_forest_edge'] = distance_to_forest_edge(row['x'], row['y'], candidate_vmi, candidate_dem)
             except Exception as e:
                 logger.error(f"Error computing forest edge distance {row['x']} {row['y']} {tif_filename}: {e}")
                 results['distance_to_forest_edge'] = None
