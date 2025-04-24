@@ -191,7 +191,7 @@ def compute_all_distances(args):
                     row['x'], row['y'], candidate_vmi, candidate_dem, window_size=20
                 )
             except Exception as e:
-                logger.error(f"Error computing forest edge distance: {e}")
+                logger.error(f"Error computing forest edge distance {tif_filename}: {e}")
                 results['distance_to_forest_edge'] = None
 
         # Rocky outcrop distance
