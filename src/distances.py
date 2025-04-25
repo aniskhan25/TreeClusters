@@ -55,13 +55,17 @@ def distance_to_forest_edge(
         window = rasterio.windows.Window(
             window_col_start, window_row_start, window_col_end - window_col_start, window_row_end - window_row_start
         )
+
         canopy_cover = vmi_src.read(1, window=window)
         vmi_transform = vmi_src.window_transform(window)
         vmi_pixel_size = vmi_src.res[0]
+
         dem_window = dem_src.window(*vmi_src.window_bounds(window))
+
         dem = dem_src.read(1, window=dem_window)
         dem_transform = dem_src.window_transform(dem_window)
         dem_resampled = np.zeros_like(canopy_cover, dtype=np.float32)
+
         reproject(
             source=dem,
             destination=dem_resampled,
@@ -71,41 +75,60 @@ def distance_to_forest_edge(
             dst_crs=vmi_src.crs,
             resampling=Resampling.bilinear,
         )
+
         dy, dx = np.gradient(dem_resampled, vmi_pixel_size)
         aspect_rad = np.arctan2(-dy, dx)
         aspect_deg = np.degrees(aspect_rad) % 360
+
         initial_forest_mask = ((canopy_cover != 32767) & (canopy_cover >= threshold)).astype(np.uint8)
         forest_mask = binary_closing(initial_forest_mask, structure=np.ones((3, 3)))
         forest_mask = binary_opening(forest_mask, structure=np.ones((3, 3)))
+
         labeled_forest, num_features = label(forest_mask, return_num=True)
+
         cleaned_forest_mask = np.zeros_like(forest_mask)
         for i in range(1, num_features + 1):
             component = labeled_forest == i
             if np.sum(component) >= min_patch_pixels:
                 cleaned_forest_mask[component] = 1
+
         filled_forest_mask = remove_small_holes(cleaned_forest_mask.astype(bool), area_threshold=max_hole_pixels)
         forest_mask = filled_forest_mask.astype(np.uint8)
+
         eroded_forest = binary_erosion(forest_mask, structure=np.ones((3, 3)))
         forest_edge = forest_mask ^ eroded_forest
+        # If no forest edge present in the patch, return NaN
+        if not forest_edge.any():
+            return np.nan
+
         # Compute Euclidean distance transforms in meters using the raster's pixel size
         dist_all = distance_transform_edt(1 - forest_edge, sampling=[vmi_pixel_size, vmi_pixel_size])
+
         # Mask edges that face south within the specified range
         south_facing_mask = (aspect_deg >= south_facing_range[0]) & (aspect_deg <= south_facing_range[1])
         south_facing_edges = forest_edge & south_facing_mask
         dist_south = distance_transform_edt(1 - south_facing_edges, sampling=[vmi_pixel_size, vmi_pixel_size])
+
         # Compute directional weight factor for south-facing edges
         aspect_center = (south_facing_range[0] + south_facing_range[1]) / 2
         aspect_deviation = np.abs(aspect_deg - aspect_center) / ((south_facing_range[1] - south_facing_range[0]) / 2)
+
         weight_factor = np.where(
             south_facing_mask,
             weight_range[0] + (weight_range[1] - weight_range[0]) * (1 - np.minimum(aspect_deviation, 1)),
             1.0,
         )
+
         adjusted_dist = np.where(dist_south == dist_all, dist_all * weight_factor, dist_all)
+
         # adjusted_dist = np.minimum(adjusted_dist, 300)  # Cap at patch size
         row_in_window = row - int(window.row_off)
         col_in_window = col - int(window.col_off)
-        return adjusted_dist[row_in_window, col_in_window]
+        # Determine maximum searchable distance (half the patch width in meters)
+        rows_patch, cols_patch = forest_edge.shape
+        max_distance = max(rows_patch, cols_patch) / 2 * vmi_pixel_size
+        dist = adjusted_dist[row_in_window, col_in_window]
+        return np.nan if dist >= max_distance else dist
 
 
 def distance_to_nearest_wetland(dtw_path, longitude, latitude, wetland_threshold=1):
@@ -126,10 +149,17 @@ def distance_to_nearest_wetland(dtw_path, longitude, latitude, wetland_threshold
             # Fill masked (no-data) pixels with a value above threshold so they are treated as non-wetland
             dtw_filled = dtw.filled(wetland_threshold + 1)
             wetland_mask = (dtw_filled < wetland_threshold).astype(np.uint8)
+            # If no wetland pixel in the patch, return NaN
+            if not wetland_mask.any():
+                return np.nan
 
             distance_to_wetland = distance_transform_edt(1 - wetland_mask, sampling=[pixel_size, pixel_size])
 
-            return distance_to_wetland[row, col]
+            # Determine maximum searchable distance (half the patch width in meters)
+            rows_patch, cols_patch = dtw.shape
+            max_distance = max(rows_patch, cols_patch) / 2 * pixel_size
+            dist = distance_to_wetland[row, col]
+            return np.nan if dist >= max_distance else dist
     except Exception as e:
         logger.error(f"Error computing distance: {e}")
         return None
@@ -139,20 +169,35 @@ def distance_to_rocky_outcrop(dem_path, target_longitude, target_latitude, rock_
     try:
         with rasterio.open(dem_path) as src:
             dem = src.read(1, masked=True)
+
             # Fill masked (no-data) pixels so gradient ignores them
             dem_filled = dem.filled(np.nan)
+
             pixel_size = src.res[0]
             rows, cols = dem.shape  # Get actual patch dimensions
             row, col = src.index(target_longitude, target_latitude)
             row = max(0, min(row, rows - 1))
             col = max(0, min(col, cols - 1))
+
             dy, dx = np.gradient(dem_filled.astype("float"), pixel_size)
             slope_rad = np.arctan(np.sqrt(dx**2 + dy**2))
             slope_deg = np.degrees(slope_rad)
+
             rocky_mask = slope_deg > rock_threshold
             rocky_mask = binary_closing(rocky_mask, structure=np.ones((3, 3)))
+            # If no rocky outcrop pixel in the patch, return NaN
+            if not rocky_mask.any():
+                return np.nan
+
             distance_from_rock = distance_transform_edt(1 - rocky_mask, sampling=[pixel_size, pixel_size])
-            return distance_from_rock[row, col]
+
+            # Determine the maximum searchable distance (half the patch width in meters)
+            max_distance = max(rows, cols) / 2 * pixel_size
+
+            dist = distance_from_rock[row, col]
+            # Assign NaN if no rocky pixel was found within the patch (i.e., dist == max_distance)
+            return np.nan if dist >= max_distance else dist
+
     except Exception as e:
         logger.error(f"Error in distance_to_rocky_outcrop: {e}")
         return None
