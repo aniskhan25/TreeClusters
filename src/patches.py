@@ -12,19 +12,15 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 import matplotlib.pyplot as plt
-from tqdm import tqdm
 
-from affine import Affine
-from rasterio.warp import transform
-from rasterio.windows import Window
-from rasterio.transform import from_bounds
+from rtree import index as rtree_index
+from shapely.geometry import Point, box
+
+from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
-
-from rtree import index as rtree_index
-from shapely.geometry import Point, box
 
 
 class PatchProcessor:
@@ -37,7 +33,8 @@ class PatchProcessor:
         resolution=0.5,
         epsg=3067,
         offset=3,
-        # safe_margin=25,  # if you want a 50m buffer, or computed as (patch_size/2) * resolution
+        min_extent=300.0,  # Minimum geographic width (in meters) for the patch
+        # safe_margin=25,  # if want a 50m buffer, or computed as (patch_size/2) * resolution
     ):
         self.data_path = data_path
         self.catalog_url = catalog_url
@@ -49,6 +46,7 @@ class PatchProcessor:
         self.catalog = None
         self.mapping_file = None
         self.offset = offset
+        self.min_extent = min_extent
 
         # Initialize spatial index and patch mapping for greedy assignment.
         self.patch_index = rtree_index.Index()
@@ -68,8 +66,9 @@ class PatchProcessor:
 
             # Compute cluster IDs based on offset grid
             gdf["cluster_id"] = (
-                np.floor(gdf["x"] / (self.offset * self.resolution)).astype(int).astype(str) + "_" +
-                np.floor(gdf["y"] / (self.offset * self.resolution)).astype(int).astype(str)
+                np.floor(gdf["x"] / (self.offset * self.resolution)).astype(int).astype(str)
+                + "_"
+                + np.floor(gdf["y"] / (self.offset * self.resolution)).astype(int).astype(str)
             )
 
             self.cluster_df = gdf.drop(columns="geometry")
@@ -122,66 +121,9 @@ class PatchProcessor:
             logger.error(f"STAC query failed for point ({lon}, {lat}): {e}")
         return results
 
-    # def extract_patch(self, lon, lat, raster_url):
-    #     print(lon, lat, raster_url)
-    #     with rasterio.open(raster_url) as src:
-    #         lon_lat_crs = "EPSG:4326"  # WGS84
-    #         raster_crs = src.crs
-    #         x, y = rasterio.warp.transform(lon_lat_crs, raster_crs, [lon], [lat])
-    #         x, y = x[0], y[0]
-
-    #         print(x,y)
-
-    #         py, px = src.index(x, y)
-
-    #         px = max(0, min(px, src.width - 1))
-    #         py = max(0, min(py, src.height - 1))
-
-    #         print(px, py)
-
-    #         window = Window(
-    #             col_off=max(0, px - self.patch_size // 2),
-    #             row_off=max(0, py - self.patch_size // 2),
-    #             width=min(self.patch_size, src.width - px + self.patch_size // 2),
-    #             height=min(self.patch_size, src.height - py + self.patch_size // 2),
-    #         )
-
-    #         print(window)
-
-    #         patch = src.read(window=window)
-    #         transform = src.window_transform(window)
-
-    #         scale_factor_x = (src.res[0] / self.resolution)  # src.res[0] is the original x resolution
-    #         scale_factor_y = (src.res[1] / self.resolution)  # src.res[1] is the original y resolution
-
-    #         print(src.res[0], src.res[1], self.resolution)
-    #         print(scale_factor_x, scale_factor_y)
-
-    #         new_width = int(patch.shape[2] * scale_factor_x)
-    #         new_height = int(patch.shape[1] * scale_factor_y)
-    #         new_transform = transform * Affine.scale(1 / scale_factor_x, 1 / scale_factor_y)
-
-    #         resampled_patch = np.empty((patch.shape[0], new_height, new_width), dtype=patch.dtype)
-
-    #         print(new_width, new_height)
-
-    #         for i in range(patch.shape[0]):
-    #             resampled_patch[i], _ = rasterio.warp.reproject(
-    #                 source=patch[i],
-    #                 destination=resampled_patch[i],
-    #                 src_transform=transform,
-    #                 dst_transform=new_transform,
-    #                 src_crs=src.crs,
-    #                 dst_crs=src.crs,
-    #                 resampling=rasterio.enums.Resampling.bilinear,
-    #             )
-
-    #         return resampled_patch, new_transform, src.crs
-
     def extract_patch(self, lon, lat, raster_url):
-        min_extent = 300.0  # Minimum geographic width (in meters) for the patch
         default_extent = self.patch_size * self.resolution
-        extent = max(default_extent, min_extent)
+        extent = max(default_extent, self.min_extent)
         half_size = extent / 2.0
 
         with rasterio.open(raster_url) as src:
@@ -193,7 +135,6 @@ class PatchProcessor:
             right = x_center + half_size
             top = y_center + half_size
 
-            # Remove deprecated width and height parameters
             window = rasterio.windows.from_bounds(left, bottom, right, top, src.transform)
 
             patch = src.read(window=window, boundless=True, fill_value=src.nodata)
@@ -264,10 +205,10 @@ class PatchProcessor:
 
         logger.debug(f"Processing survey point {idx}: x={x}, y={y}")
 
-        lon, lat = transform(f"EPSG:{self.epsg}", "EPSG:4326", [x], [y])
+        lon, lat = rasterio.warp.transform(f"EPSG:{self.epsg}", "EPSG:4326", [x], [y])
         lon, lat = lon[0], lat[0]
 
-        # x_list, y_list = transform("EPSG:4326", f"EPSG:{self.epsg}", [x], [y])
+        # x_list, y_list = rasterio.warp.transform("EPSG:4326", f"EPSG:{self.epsg}", [x], [y])
         # x, y = x_list[0], y_list[0]
         point_geom = Point(x, y)
 
@@ -440,7 +381,6 @@ def main():
                     break  # Stop checking further if one file is found
 
             if not patch_exists:
-                # Process the survey point since no file exists yet
                 processor.process_survey_point(idx, output_dir, collections_info)
             else:
                 logger.debug(f"Skipping processing for survey point {patch_id} because file already exists.")

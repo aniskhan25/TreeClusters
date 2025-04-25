@@ -8,50 +8,16 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 
-from tqdm import tqdm  # For progress bar
 from scipy.ndimage import binary_closing, binary_opening, binary_erosion, distance_transform_edt
 from skimage.measure import label
 from skimage.morphology import remove_small_holes
-from rasterio.warp import reproject, Resampling  # Explicitly import warp functions
+from rasterio.warp import reproject, Resampling
+
+from tqdm import tqdm
 from multiprocessing import Pool, cpu_count
 
 
 logger = logging.getLogger(__name__)
-
-
-def chamfer_distance_transform(binary_image, weights=(3, 4)):
-    h_weight, d_weight = weights
-    dist = np.where(binary_image == 0, 0, np.inf)
-    rows, cols = dist.shape
-    for i in range(rows):
-        for j in range(cols):
-            if dist[i, j] == np.inf:
-                neighbors = []
-                if i > 0:
-                    neighbors.append(dist[i - 1, j] + h_weight)
-                    if j > 0:
-                        neighbors.append(dist[i - 1, j - 1] + d_weight)
-                    if j < cols - 1:
-                        neighbors.append(dist[i - 1, j + 1] + d_weight)
-                if j > 0:
-                    neighbors.append(dist[i, j - 1] + h_weight)
-                if neighbors:
-                    dist[i, j] = min(neighbors)
-    for i in range(rows - 1, -1, -1):
-        for j in range(cols - 1, -1, -1):
-            if dist[i, j] != 0:
-                neighbors = [dist[i, j]]
-                if i < rows - 1:
-                    neighbors.append(dist[i + 1, j] + h_weight)
-                    if j > 0:
-                        neighbors.append(dist[i + 1, j - 1] + d_weight)
-                    if j < cols - 1:
-                        neighbors.append(dist[i + 1, j + 1] + d_weight)
-                if j < cols - 1:
-                    neighbors.append(dist[i, j + 1] + h_weight)
-                dist[i, j] = min(neighbors)
-    return dist
-
 
 
 def distance_to_forest_edge(
@@ -69,28 +35,25 @@ def distance_to_forest_edge(
     with rasterio.open(vmi_raster_path) as vmi_src, rasterio.open(dem_raster_path) as dem_src:
         # Get row, col indices for the point
         row, col = vmi_src.index(longitude, latitude)
-        
+
         # Ensure the point is within the raster bounds
         if row < 0 or row >= vmi_src.height or col < 0 or col >= vmi_src.width:
             return np.nan
-            
+
         # Calculate window boundaries
         half_window = window_size // 2
         window_col_start = max(0, col - half_window)
         window_row_start = max(0, row - half_window)
         window_col_end = min(vmi_src.width, col + half_window)
         window_row_end = min(vmi_src.height, row + half_window)
-        
+
         # Ensure window has valid dimensions
         if window_col_end <= window_col_start or window_row_end <= window_row_start:
             return np.nan
-        
+
         # Adjust window size if near boundaries
         window = rasterio.windows.Window(
-            window_col_start,
-            window_row_start,
-            window_col_end - window_col_start,
-            window_row_end - window_row_start
+            window_col_start, window_row_start, window_col_end - window_col_start, window_row_end - window_row_start
         )
         canopy_cover = vmi_src.read(1, window=window)
         vmi_transform = vmi_src.window_transform(window)
@@ -124,10 +87,13 @@ def distance_to_forest_edge(
         forest_mask = filled_forest_mask.astype(np.uint8)
         eroded_forest = binary_erosion(forest_mask, structure=np.ones((3, 3)))
         forest_edge = forest_mask ^ eroded_forest
-        dist_all = chamfer_distance_transform(1 - forest_edge)
+        # Compute Euclidean distance transforms in meters using the raster's pixel size
+        dist_all = distance_transform_edt(1 - forest_edge, sampling=[vmi_pixel_size, vmi_pixel_size])
+        # Mask edges that face south within the specified range
         south_facing_mask = (aspect_deg >= south_facing_range[0]) & (aspect_deg <= south_facing_range[1])
         south_facing_edges = forest_edge & south_facing_mask
-        dist_south = chamfer_distance_transform(1 - south_facing_edges)
+        dist_south = distance_transform_edt(1 - south_facing_edges, sampling=[vmi_pixel_size, vmi_pixel_size])
+        # Compute directional weight factor for south-facing edges
         aspect_center = (south_facing_range[0] + south_facing_range[1]) / 2
         aspect_deviation = np.abs(aspect_deg - aspect_center) / ((south_facing_range[1] - south_facing_range[0]) / 2)
         weight_factor = np.where(
@@ -136,13 +102,11 @@ def distance_to_forest_edge(
             1.0,
         )
         adjusted_dist = np.where(dist_south == dist_all, dist_all * weight_factor, dist_all)
-        adjusted_dist *= vmi_pixel_size
         # adjusted_dist = np.minimum(adjusted_dist, 300)  # Cap at patch size
         row_in_window = row - int(window.row_off)
         col_in_window = col - int(window.col_off)
         return adjusted_dist[row_in_window, col_in_window]
-  
-\
+
 
 def distance_to_nearest_wetland(dtw_path, longitude, latitude, wetland_threshold=1):
     try:
@@ -159,11 +123,11 @@ def distance_to_nearest_wetland(dtw_path, longitude, latitude, wetland_threshold
 
             # DTW index threshold (in meters) below which a pixel is considered wet.
             # Default is 1 (i.e., pixels with DTW <1m are "wet").
-            wetland_mask = (dtw < wetland_threshold).astype(np.uint8)
+            # Fill masked (no-data) pixels with a value above threshold so they are treated as non-wetland
+            dtw_filled = dtw.filled(wetland_threshold + 1)
+            wetland_mask = (dtw_filled < wetland_threshold).astype(np.uint8)
 
             distance_to_wetland = distance_transform_edt(1 - wetland_mask, sampling=[pixel_size, pixel_size])
-
-            distance_to_wetland = np.maximum(distance_to_wetland, 1)
 
             return distance_to_wetland[row, col]
     except Exception as e:
@@ -175,12 +139,14 @@ def distance_to_rocky_outcrop(dem_path, target_longitude, target_latitude, rock_
     try:
         with rasterio.open(dem_path) as src:
             dem = src.read(1, masked=True)
+            # Fill masked (no-data) pixels so gradient ignores them
+            dem_filled = dem.filled(np.nan)
             pixel_size = src.res[0]
             rows, cols = dem.shape  # Get actual patch dimensions
             row, col = src.index(target_longitude, target_latitude)
             row = max(0, min(row, rows - 1))
             col = max(0, min(col, cols - 1))
-            dy, dx = np.gradient(dem.astype("float"), pixel_size)
+            dy, dx = np.gradient(dem_filled.astype("float"), pixel_size)
             slope_rad = np.arctan(np.sqrt(dx**2 + dy**2))
             slope_deg = np.degrees(slope_rad)
             rocky_mask = slope_deg > rock_threshold
@@ -212,7 +178,9 @@ def compute_all_distances(args):
             results['distance_to_forest_edge'] = None
         else:
             try:
-                results['distance_to_forest_edge'] = distance_to_forest_edge(row['x'], row['y'], candidate_vmi, candidate_dem)
+                results['distance_to_forest_edge'] = distance_to_forest_edge(
+                    row['x'], row['y'], candidate_vmi, candidate_dem
+                )
             except Exception as e:
                 logger.error(f"Error computing forest edge distance {row['x']} {row['y']} {tif_filename}: {e}")
                 results['distance_to_forest_edge'] = None
