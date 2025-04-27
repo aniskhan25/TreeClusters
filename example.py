@@ -1,6 +1,6 @@
 import os
 
-from compute_distances import (
+from src.distances import (
     distance_to_forest_edge,
     distance_to_rocky_outcrop,
     distance_to_nearest_wetland,
