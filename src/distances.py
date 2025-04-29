@@ -31,6 +31,7 @@ def distance_to_forest_edge(
     max_hole_pixels=20,
     weight_range=(1.05, 1.10),
     south_facing_range=(135, 225),
+    kernel_size=3,
 ):
     with rasterio.open(vmi_raster_path) as vmi_src, rasterio.open(dem_raster_path) as dem_src:
         # Get row, col indices for the point
@@ -81,8 +82,8 @@ def distance_to_forest_edge(
         aspect_deg = np.degrees(aspect_rad) % 360
 
         initial_forest_mask = ((canopy_cover != 32767) & (canopy_cover >= threshold)).astype(np.uint8)
-        forest_mask = binary_closing(initial_forest_mask, structure=np.ones((3, 3)))
-        forest_mask = binary_opening(forest_mask, structure=np.ones((3, 3)))
+        forest_mask = binary_closing(initial_forest_mask, structure=np.ones((kernel_size, kernel_size)))
+        forest_mask = binary_opening(forest_mask, structure=np.ones((kernel_size, kernel_size)))
 
         labeled_forest, num_features = label(forest_mask, return_num=True)
 
@@ -95,7 +96,7 @@ def distance_to_forest_edge(
         filled_forest_mask = remove_small_holes(cleaned_forest_mask.astype(bool), area_threshold=max_hole_pixels)
         forest_mask = filled_forest_mask.astype(np.uint8)
 
-        eroded_forest = binary_erosion(forest_mask, structure=np.ones((3, 3)))
+        eroded_forest = binary_erosion(forest_mask, structure=np.ones((kernel_size, kernel_size)))
         forest_edge = forest_mask ^ eroded_forest
         # If no forest edge present in the patch, return NaN
         if not forest_edge.any():
@@ -165,7 +166,7 @@ def distance_to_nearest_wetland(dtw_path, longitude, latitude, wetland_threshold
         return None
 
 
-def distance_to_rocky_outcrop(dem_path, target_longitude, target_latitude, rock_threshold=30):
+def distance_to_rocky_outcrop(dem_path, target_longitude, target_latitude, rock_threshold=30, kernel_size=3):
     try:
         with rasterio.open(dem_path) as src:
             dem = src.read(1, masked=True)
@@ -184,7 +185,7 @@ def distance_to_rocky_outcrop(dem_path, target_longitude, target_latitude, rock_
             slope_deg = np.degrees(slope_rad)
 
             rocky_mask = slope_deg > rock_threshold
-            rocky_mask = binary_closing(rocky_mask, structure=np.ones((3, 3)))
+            rocky_mask = binary_closing(rocky_mask, structure=np.ones((kernel_size, kernel_size)))
             # If no rocky outcrop pixel in the patch, return NaN
             if not rocky_mask.any():
                 return np.nan
