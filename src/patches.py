@@ -4,6 +4,7 @@ import time
 import logging
 import hashlib
 import rasterio
+from rasterio.warp import transform
 import argparse
 import threading
 import pystac_client
@@ -127,7 +128,7 @@ class PatchProcessor:
         half_size = extent / 2.0
 
         with rasterio.open(raster_url) as src:
-            x_list, y_list = rasterio.warp.transform("EPSG:4326", src.crs, [lon], [lat])
+            x_list, y_list = transform("EPSG:4326", src.crs, [lon], [lat])
             x_center, y_center = x_list[0], y_list[0]
 
             left = x_center - half_size
@@ -205,7 +206,7 @@ class PatchProcessor:
 
         logger.debug(f"Processing survey point {idx}: x={x}, y={y}")
 
-        lon, lat = rasterio.warp.transform(f"EPSG:{self.epsg}", "EPSG:4326", [x], [y])
+        lon, lat = transform(f"EPSG:{self.epsg}", "EPSG:4326", [x], [y])
         lon, lat = lon[0], lat[0]
 
         # x_list, y_list = rasterio.warp.transform("EPSG:4326", f"EPSG:{self.epsg}", [x], [y])
