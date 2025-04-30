@@ -3,6 +3,7 @@ import hashlib
 import logging
 import argparse
 import rasterio
+import importlib
 
 import numpy as np
 import pandas as pd
@@ -11,7 +12,10 @@ import geopandas as gpd
 from scipy.ndimage import binary_closing, binary_opening, binary_erosion, distance_transform_edt
 from skimage.measure import label
 from skimage.morphology import remove_small_holes
-from rasterio.warp import reproject
+try:
+    from rasterio.warp import reproject
+except ImportError:
+    from rasterio._warp import reproject
 from rasterio.enums import Resampling
 
 from tqdm import tqdm
