@@ -61,19 +61,27 @@ def distance_to_forest_edge(
         vmi_transform = vmi_src.window_transform(window)
         vmi_pixel_size = vmi_src.res[0]
 
-        # Create initial forest mask at native 16 m resolution
-        initial_forest_mask = ((canopy_cover != 32767) & (canopy_cover >= threshold)).astype(np.uint8)
-
-        # Read DEM window and transform
         dem_window = dem_src.window(*vmi_src.window_bounds(window))
+
         dem = dem_src.read(1, window=dem_window)
         dem_transform = dem_src.window_transform(dem_window)
-        dem_res = dem_src.res[0]
+        dem_resampled = np.zeros_like(canopy_cover, dtype=np.float32)
 
-        # Compute aspect from the DEM at 2 m resolution
-        dy, dx = np.gradient(dem, dem_res)
+        reproject(
+            source=dem,
+            destination=dem_resampled,
+            src_transform=dem_transform,
+            src_crs=dem_src.crs,
+            dst_transform=vmi_transform,
+            dst_crs=vmi_src.crs,
+            resampling=Resampling.bilinear,
+        )
+
+        dy, dx = np.gradient(dem_resampled, vmi_pixel_size)
         aspect_rad = np.arctan2(-dy, dx)
         aspect_deg = np.degrees(aspect_rad) % 360
+
+        initial_forest_mask = ((canopy_cover != 32767) & (canopy_cover >= threshold)).astype(np.uint8)
         forest_mask = binary_closing(initial_forest_mask, structure=np.ones((kernel_size, kernel_size)))
         forest_mask = binary_opening(forest_mask, structure=np.ones((kernel_size, kernel_size)))
 
@@ -94,28 +102,13 @@ def distance_to_forest_edge(
         if not forest_edge.any():
             return np.nan
 
-        # Hybrid approach: upsample 16 m forest edge to DEM's 2 m grid
-        forest_edge_upsamp = np.zeros_like(dem, dtype=np.uint8)
-        reproject(
-            source=forest_edge.astype(np.uint8),
-            destination=forest_edge_upsamp,
-            src_transform=vmi_transform,
-            src_crs=vmi_src.crs,
-            dst_transform=dem_transform,
-            dst_crs=dem_src.crs,
-            dst_shape=dem.shape,
-            resampling=Resampling.bilinear,
-        )
-        # Binarize after interpolation
-        forest_edge_upsamp = forest_edge_upsamp > 0.5
-
-        # Compute Euclidean distance transforms in meters using the DEM's pixel size
-        dist_all = distance_transform_edt(1 - forest_edge_upsamp, sampling=[dem_res, dem_res])
+        # Compute Euclidean distance transforms in meters using the raster's pixel size
+        dist_all = distance_transform_edt(1 - forest_edge, sampling=[vmi_pixel_size, vmi_pixel_size])
 
         # Mask edges that face south within the specified range
         south_facing_mask = (aspect_deg >= south_facing_range[0]) & (aspect_deg <= south_facing_range[1])
-        south_facing_edges_upsamp = forest_edge_upsamp & south_facing_mask
-        dist_south = distance_transform_edt(1 - south_facing_edges_upsamp, sampling=[dem_res, dem_res])
+        south_facing_edges = forest_edge & south_facing_mask
+        dist_south = distance_transform_edt(1 - south_facing_edges, sampling=[vmi_pixel_size, vmi_pixel_size])
 
         # Compute directional weight factor for south-facing edges
         aspect_center = (south_facing_range[0] + south_facing_range[1]) / 2
@@ -130,13 +123,11 @@ def distance_to_forest_edge(
         adjusted_dist = np.where(dist_south == dist_all, dist_all * weight_factor, dist_all)
 
         # adjusted_dist = np.minimum(adjusted_dist, 300)  # Cap at patch size
-        # Compute point index in DEM window
-        row_dem, col_dem = dem_src.index(longitude, latitude)
-        row_in_window = int(row_dem - dem_window.row_off)
-        col_in_window = int(col_dem - dem_window.col_off)
+        row_in_window = row - int(window.row_off)
+        col_in_window = col - int(window.col_off)
         # Determine maximum searchable distance (half the patch width in meters)
         rows_patch, cols_patch = forest_edge.shape
-        max_distance = max(rows_patch, cols_patch) / 2 * dem_res
+        max_distance = max(rows_patch, cols_patch) / 2 * vmi_pixel_size
         dist = adjusted_dist[row_in_window, col_in_window]
         return np.nan if dist >= max_distance else dist
 
