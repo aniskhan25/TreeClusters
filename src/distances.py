@@ -11,7 +11,8 @@ import geopandas as gpd
 from scipy.ndimage import binary_closing, binary_opening, binary_erosion, distance_transform_edt
 from skimage.measure import label
 from skimage.morphology import remove_small_holes
-from rasterio.warp import reproject, Resampling
+from rasterio.warp import reproject
+from rasterio.enums import Resampling
 
 from tqdm import tqdm
 from multiprocessing import Pool, cpu_count
