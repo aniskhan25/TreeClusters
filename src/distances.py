@@ -61,27 +61,14 @@ def distance_to_forest_edge(
         vmi_transform = vmi_src.window_transform(window)
         vmi_pixel_size = vmi_src.res[0]
 
+        # Create initial forest mask at native 16 m resolution
+        initial_forest_mask = ((canopy_cover != 32767) & (canopy_cover >= threshold)).astype(np.uint8)
+
         # Read DEM window and transform
         dem_window = dem_src.window(*vmi_src.window_bounds(window))
         dem = dem_src.read(1, window=dem_window)
         dem_transform = dem_src.window_transform(dem_window)
         dem_res = dem_src.res[0]
-
-        # Upsample canopy cover (VMI) to DEM's 2 m grid
-        canopy_upsampled = np.zeros_like(dem, dtype=np.float32)
-        reproject(
-            source=canopy_cover,
-            destination=canopy_upsampled,
-            src_transform=vmi_transform,
-            src_crs=vmi_src.crs,
-            dst_transform=dem_transform,
-            dst_crs=dem_src.crs,
-            dst_shape=dem.shape,
-            resampling=Resampling.bilinear,
-        )
-
-        # Create initial forest mask at 2 m resolution
-        initial_forest_mask = ((canopy_upsampled != 32767) & (canopy_upsampled >= threshold)).astype(np.uint8)
 
         # Compute aspect from the DEM at 2 m resolution
         dy, dx = np.gradient(dem, dem_res)
@@ -107,13 +94,28 @@ def distance_to_forest_edge(
         if not forest_edge.any():
             return np.nan
 
+        # Hybrid approach: upsample 16 m forest edge to DEM's 2 m grid
+        forest_edge_upsamp = np.zeros_like(dem, dtype=np.uint8)
+        reproject(
+            source=forest_edge.astype(np.uint8),
+            destination=forest_edge_upsamp,
+            src_transform=vmi_transform,
+            src_crs=vmi_src.crs,
+            dst_transform=dem_transform,
+            dst_crs=dem_src.crs,
+            dst_shape=dem.shape,
+            resampling=Resampling.bilinear,
+        )
+        # Binarize after interpolation
+        forest_edge_upsamp = forest_edge_upsamp > 0.5
+
         # Compute Euclidean distance transforms in meters using the DEM's pixel size
-        dist_all = distance_transform_edt(1 - forest_edge, sampling=[dem_res, dem_res])
+        dist_all = distance_transform_edt(1 - forest_edge_upsamp, sampling=[dem_res, dem_res])
 
         # Mask edges that face south within the specified range
         south_facing_mask = (aspect_deg >= south_facing_range[0]) & (aspect_deg <= south_facing_range[1])
-        south_facing_edges = forest_edge & south_facing_mask
-        dist_south = distance_transform_edt(1 - south_facing_edges, sampling=[dem_res, dem_res])
+        south_facing_edges_upsamp = forest_edge_upsamp & south_facing_mask
+        dist_south = distance_transform_edt(1 - south_facing_edges_upsamp, sampling=[dem_res, dem_res])
 
         # Compute directional weight factor for south-facing edges
         aspect_center = (south_facing_range[0] + south_facing_range[1]) / 2
