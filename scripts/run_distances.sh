@@ -37,7 +37,7 @@ fi
 export DATA_PATH="$TREECLUST_DATA_PATH/clusters.csv"
 
 module use /appl/local/csc/modulefiles/
-module load pytorch/2.4
+module load pytorch/2.5
 
 # Reset PATH to minimal system directories
 export PATH="/usr/bin:/bin"
