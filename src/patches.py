@@ -1,14 +1,10 @@
 import os
 import csv
-import time
 import logging
 import hashlib
 import rasterio
-from rasterio.warp import transform
 import argparse
 import threading
-import pystac_client
-from functools import lru_cache
 
 import numpy as np
 import pandas as pd
@@ -17,16 +13,14 @@ import matplotlib.pyplot as plt
 
 from rtree import index as rtree_index
 from shapely.geometry import Point, box
+from rasterio.warp import transform
 
 from tqdm import tqdm
+from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
-
-
-def expand_path(path):
-    return os.path.expandvars(path)
 
 
 class PatchProcessor:
@@ -174,7 +168,6 @@ class PatchProcessor:
         if self.cluster_df is None:
             raise ValueError("Survey data has not been loaded.")
 
-        logger.debug(self.cluster_df.head())
         x = self.cluster_df["x"].iloc[idx]
         y = self.cluster_df["y"].iloc[idx]
         patch_id = self.cluster_df["patch_id"].iloc[idx]
@@ -188,11 +181,7 @@ class PatchProcessor:
         if self._transformer_to_wgs84 is None:
             from pyproj import Transformer
             self._transformer_to_wgs84 = Transformer.from_crs(self.epsg, 4326, always_xy=True)
-        logger.debug(f"Transformer initialized: {self._transformer_to_wgs84}")
-        logger.debug(f"Transforming coordinates from EPSG:{self.epsg} to WGS84 (EPSG:4326)")
-        logger.debug(f"Original coordinates: x={x}, y={y}")
         lon, lat = self._transformer_to_wgs84.transform(x, y)
-        logger.debug(f"Transformed coordinates: lon={lon}, lat={lat}")
 
         point_geom = Point(x, y)
 
@@ -206,8 +195,6 @@ class PatchProcessor:
             x + max_safe_margin,
             y + max_safe_margin,
         )
-
-        logger.debug(f"Point bounding box: {point_bbox}")
 
         assigned_patch_filename = None
 
@@ -393,7 +380,6 @@ def main():
             if patch_exists:
                 logger.debug(f"File {patch_filename} already exists. Skipping survey point {patch_id}.")
             else:
-                logger.debug(f"Processing survey point {patch_id} ...")
                 processor.process_survey_point(row_idx, output_dir, collections_info)
 
         except Exception as e:
