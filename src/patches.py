@@ -25,6 +25,10 @@ logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %
 logger = logging.getLogger(__name__)
 
 
+def expand_path(path):
+    return os.path.expandvars(path)
+
+
 class PatchProcessor:
     def __init__(
         self,
@@ -198,8 +202,6 @@ class PatchProcessor:
             y + max_safe_margin,
         )
 
-        logger.debug("A")
-
         assigned_patch_filename = None
 
         with self.lock:
@@ -224,8 +226,6 @@ class PatchProcessor:
                     )
                     break
 
-        logger.debug("B")
-
         if assigned_patch_filename is not None:
             self.record_mapping(
                 patch_id,
@@ -235,8 +235,6 @@ class PatchProcessor:
                 y,
             )
             return
-
-        logger.debug("C")
 
         # Instead of querying STAC, use local dataset_paths
         successful = False
@@ -249,8 +247,6 @@ class PatchProcessor:
             self.record_mapping(patch_id, patch_id + '.tif', patch_id, x, y)
             if successful:
                 logger.debug(f"Extracted patches for survey point {patch_id}.")
-
-        logger.debug("D")
 
         patch_extent = self.patch_size * self.resolution
         patch_footprint = box(x - patch_extent, y - patch_extent, x + patch_extent, y + patch_extent)
@@ -317,21 +313,21 @@ def main():
     collections_info = {
         "dtw": {
             "name": "dtw",
-            "path": "./data/vrt/dtw_005.vrt",
+            "path": "vrt/dtw_005.vrt",
             "year_start": 2023,
             "year_end": 2023,
             "min_extent": 300.0
         },
         "dem": {
             "name": "dem",
-            "path": "./data/vrt/dem_2m.vrt",
+            "path": "vrt/dem_2m.vrt",
             "year_start": 2008,
             "year_end": 2020,
             "min_extent": 200.0
         },
         "vmi": {
             "name": "vmi",
-            "path": "./data/vmi/2021/latvuspeitto_vmi1x_1721.tif",
+            "path": "vmi/2021/latvuspeitto_vmi1x_1721.tif",
             "year_start": 2021,
             "year_end": 2021,
             "min_extent": 300.0
@@ -349,7 +345,7 @@ def main():
         epsg=epsg,
     )
 
-    processor.dataset_paths = [collections_info[name]["path"] for name in collection_names]
+    processor.dataset_paths = [os.path.join(data_path, collections_info[name]["path"]) for name in collection_names]
     processor.dataset_extents = [collections_info[name]["min_extent"] for name in collection_names]
 
     def _determine_source_type():
