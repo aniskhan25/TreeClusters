@@ -189,6 +189,8 @@ class PatchProcessor:
             self._transformer_to_wgs84 = Transformer.from_crs(self.epsg, 4326, always_xy=True)
         lon, lat = self._transformer_to_wgs84.transform(x, y)
 
+        logger.debug(f"Transformed coordinates: lon={lon}, lat={lat}")
+
         point_geom = Point(x, y)
 
         # Compute per-dataset safe margins
@@ -202,6 +204,8 @@ class PatchProcessor:
             y + max_safe_margin,
         )
 
+        logger.debug(f"Point bounding box: {point_bbox}")
+        
         assigned_patch_filename = None
 
         with self.lock:
