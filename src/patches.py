@@ -188,6 +188,8 @@ class PatchProcessor:
             from pyproj import Transformer
             self._transformer_to_wgs84 = Transformer.from_crs(self.epsg, 4326, always_xy=True)
         logger.debug(f"Transformer initialized: {self._transformer_to_wgs84}")
+        logger.debug(f"Transforming coordinates from EPSG:{self.epsg} to WGS84 (EPSG:4326)")
+        logger.debug(f"Original coordinates: x={x}, y={y}")
         lon, lat = self._transformer_to_wgs84.transform(x, y)
         logger.debug(f"Transformed coordinates: lon={lon}, lat={lat}")
 
