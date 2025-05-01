@@ -174,6 +174,7 @@ class PatchProcessor:
         if self.cluster_df is None:
             raise ValueError("Survey data has not been loaded.")
 
+        logger.debug(self.cluster_df.head())
         x = self.cluster_df["x"].iloc[idx]
         y = self.cluster_df["y"].iloc[idx]
         patch_id = self.cluster_df["patch_id"].iloc[idx]
