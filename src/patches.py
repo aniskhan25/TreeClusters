@@ -141,7 +141,6 @@ class PatchProcessor:
 
     def create_extended_patch(self, lon, lat, dataset_paths, patch_id, output_dir, collection_names):
         for idx, dataset_path in enumerate(dataset_paths):
-            logger.debug(f"Processing dataset {dataset_path} for patch ID {patch_id}")
             with self.open_dataset(dataset_path) as dataset:
                 extent = self.dataset_extents[idx]
                 patch, transform, crs = self.extract_patch_from_dataset(lon, lat, dataset, extent)
@@ -292,11 +291,13 @@ class PatchProcessor:
 
 def main():
     parser = argparse.ArgumentParser(description="Process tree cluster data and extract patches.")
-    parser.add_argument("--data-path", required=True, help="Path to the input data file (e.g., .gpkg or .csv).")
+    parser.add_argument("--data-path",  required=True, help="Path to the input data file (e.g., .gpkg or .csv).")
+    parser.add_argument("--data-dir",   required=True, help="Directory with input VRT and TIF data files.")
     parser.add_argument("--output-dir", required=True, help="Directory to save the output patches and mapping file.")
     args = parser.parse_args()
 
     data_path = args.data_path
+    data_dir = args.data_dir
     output_dir = args.output_dir
 
     patch_size = 1200
@@ -340,7 +341,7 @@ def main():
         epsg=epsg,
     )
 
-    processor.dataset_paths = [os.path.join(data_path, collections_info[name]["path"]) for name in collection_names]
+    processor.dataset_paths = [os.path.join(data_dir, collections_info[name]["path"]) for name in collection_names]
     processor.dataset_extents = [collections_info[name]["min_extent"] for name in collection_names]
 
     def _determine_source_type():
