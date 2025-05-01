@@ -198,6 +198,8 @@ class PatchProcessor:
             y + max_safe_margin,
         )
 
+        logger.debug("A")
+
         assigned_patch_filename = None
 
         with self.lock:
@@ -222,6 +224,8 @@ class PatchProcessor:
                     )
                     break
 
+        logger.debug("B")
+
         if assigned_patch_filename is not None:
             self.record_mapping(
                 patch_id,
@@ -231,6 +235,8 @@ class PatchProcessor:
                 y,
             )
             return
+
+        logger.debug("C")
 
         # Instead of querying STAC, use local dataset_paths
         successful = False
@@ -243,6 +249,8 @@ class PatchProcessor:
             self.record_mapping(patch_id, patch_id + '.tif', patch_id, x, y)
             if successful:
                 logger.debug(f"Extracted patches for survey point {patch_id}.")
+
+        logger.debug("D")
 
         patch_extent = self.patch_size * self.resolution
         patch_footprint = box(x - patch_extent, y - patch_extent, x + patch_extent, y + patch_extent)
