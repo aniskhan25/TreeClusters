@@ -141,6 +141,7 @@ class PatchProcessor:
 
     def create_extended_patch(self, lon, lat, dataset_paths, patch_id, output_dir, collection_names):
         for idx, dataset_path in enumerate(dataset_paths):
+            logger.debug(f"Processing dataset {dataset_path} for patch ID {patch_id}")
             with self.open_dataset(dataset_path) as dataset:
                 extent = self.dataset_extents[idx]
                 patch, transform, crs = self.extract_patch_from_dataset(lon, lat, dataset, extent)
