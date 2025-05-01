@@ -373,16 +373,16 @@ def main():
             os.path.splitext(f)[0] for f in os.listdir(patches_dir) if f.endswith(".tif")
         )
 
-    def process_cluster_row(idx, row):
+    def process_cluster_row(row_idx, row):
         try:
-            patch_id = row["patch_id"]
+            patch_id = row.patch_id
             patch_filename = f"{patch_id}.tif"
 
             patch_exists = patch_id in existing_patches
             if patch_exists:
                 logger.debug(f"File {patch_filename} already exists. Skipping survey point {patch_id}.")
             else:
-                processor.process_survey_point(idx, output_dir, collections_info)
+                processor.process_survey_point(row_idx, output_dir, collections_info)
 
         except Exception as e:
             logger.error(f"Error processing survey point {patch_id}: {e}")
@@ -390,9 +390,9 @@ def main():
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = []
         total_rows = len(processor.cluster_df)
-        for idx, row in processor.cluster_df.iterrows():
-            logger.debug(f"Submitting survey point {idx} out of {total_rows} ...")
-            future = executor.submit(process_cluster_row, idx, row)
+        for row_idx, row in enumerate(processor.cluster_df.itertuples(index=False)):
+            logger.debug(f"Submitting survey point {row_idx} out of {total_rows} ...")
+            future = executor.submit(process_cluster_row, row_idx, row)
             futures.append(future)
 
         for future in tqdm(as_completed(futures), total=total_rows, desc="Processing survey points"):
@@ -410,11 +410,18 @@ if __name__ == "__main__":
 
 Usage:
 
+module use /appl/local/csc/modulefiles
+module load geoconda
+
 gdal_translate "STACIT:\"https://paituli.csc.fi/geoserver/ogc/stac/v1/search?collections=luke_dtw_2m_0_5ha_threshold_at_paituli&datetime=2023-01-01/2023-12-31\":asset=luke_dtw_2m_0_5ha_threshold_at_paituli_tiff" -oo max_items=0 -of VRT dtw_005.vrt
 gdal_translate "STACIT:\"https://paituli.csc.fi/geoserver/ogc/stac/v1/search?collections=nls_digital_elevation_model_2m_at_paituli&datetime=2008-01-01/2020-12-31\":asset=nls_digital_elevation_model_2m_at_paituli_tiff" -oo max_items=0 -of VRT dem_2m.vrt
 
+scp ./output/clusters.csv rahmanan@lumi.csc.fi:/scratch/project_462000684/rahmanan/tree_clusters/output
+
 python ./src/patches.py --data-path ./output/sample.csv --output-dir ./output
 
-sbatch ~/TreeClusters/scripts/run_patches.sh lumi
+sbatch ~/TreeClusters/scripts/run_patches.sh lumi 0
+
+scp rahmanan@lumi.csc.fi:/scratch/project_462000684/rahmanan/tree_clusters/output/mapping.csv ./output
 
 '''
