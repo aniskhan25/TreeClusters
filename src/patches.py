@@ -187,8 +187,8 @@ class PatchProcessor:
         if self._transformer_to_wgs84 is None:
             from pyproj import Transformer
             self._transformer_to_wgs84 = Transformer.from_crs(self.epsg, 4326, always_xy=True)
+        logger.debug(f"Transformer initialized: {self._transformer_to_wgs84}")
         lon, lat = self._transformer_to_wgs84.transform(x, y)
-
         logger.debug(f"Transformed coordinates: lon={lon}, lat={lat}")
 
         point_geom = Point(x, y)
@@ -205,7 +205,7 @@ class PatchProcessor:
         )
 
         logger.debug(f"Point bounding box: {point_bbox}")
-        
+
         assigned_patch_filename = None
 
         with self.lock:
