@@ -44,7 +44,7 @@ LINES_PER_BATCH=10000
 # Only split if batches don't exist
 if [ ! -f "${SPLIT_PREFIX}aa" ]; then
     echo "[INFO] Splitting clusters.csv into batches..."
-    tail -n +2 "$TREECLUST_OUTPUT_PATH/clusters.csv" | split -l $LINES_PER_BATCH -d --additional-suffix=.csv - "$SPLIT_PREFIX"
+    tail -n +2 "$TREECLUST_OUTPUT_PATH/sample.csv" | split -l $LINES_PER_BATCH -d --additional-suffix=.csv - "$SPLIT_PREFIX"
     for file in "$BATCH_DIR"/batch_*.csv; do
         sed -i '1i patch_id,x,y,event_type' "$file"
     done
