@@ -1,4 +1,4 @@
-
+import os
 import argparse
 
 import numpy as np
@@ -21,9 +21,6 @@ def find_clusters(df, eps=20, min_samples=3):
 
     clustered_count = df[df["event_type"] == "Clustered"].shape[0]
     isolated_count = df[df["event_type"] == "Isolated"].shape[0]
-
-    print(f"Number of clustered events: {clustered_count}")
-    print(f"Number of isolated events: {isolated_count}")
 
     return df
 
@@ -82,9 +79,11 @@ def compute_dbscan_clustering(df: pd.DataFrame, eps: float = 10, min_samples: in
 def main():
     parser = argparse.ArgumentParser(description="Process tree cluster data and extract patches.")
     parser.add_argument("--data-path", required=True, help="Path to the input data file (e.g., .gpkg or .csv).")
+    parser.add_argument("--output-dir", required=True, help="Directory to save the output patches and mapping file.")
     args = parser.parse_args()
 
     data_path = args.data_path
+    output_dir = args.output_dir
 
     # Load the GeoPackage file
     data = gpd.read_file(data_path)
@@ -99,7 +98,26 @@ def main():
 
     df_clusters = find_clusters(coords, eps=20, min_samples=3)
 
-    df_clusters.to_csv('./data/clusters.csv', index=False)
+    # Save the labeled points with cluster information
+    df_clusters.to_csv(os.path.join(output_dir, 'cluster_data.csv'), index=False)
+
+    # Compute cluster centroids
+    clustered = df_clusters[df_clusters['cluster'] != -1]
+    cluster_centroids = clustered.groupby('cluster')[['x', 'y']].mean().reset_index()
+    cluster_centroids['event_type'] = 'Clustered'
+
+    isolated_events = df_clusters[df_clusters['cluster'] == -1][['x', 'y']].copy()
+    isolated_events['event_type'] = 'Isolated'
+
+    final_events = pd.concat([cluster_centroids, isolated_events], ignore_index=True)
+    final_events.to_csv(os.path.join(output_dir, 'clusters.csv'), index=False)
+
+    print(f"Number of clustered trees: {len(clustered)}")
+    print(f"Number of isolated trees: {len(isolated_events)}")
+
+    print(f"Number of clustered events: {len(cluster_centroids)}")
+    print(f"Number of isolated events: {len(isolated_events)}")
+
 
 if __name__ == "__main__":
     main()
@@ -109,7 +127,7 @@ if __name__ == "__main__":
 
 Usage:
 
-python ./src/clusters.py --data-path ./data/DeadTrees_2023_Anis_ShapeStudy.gpkg
+python ./src/clusters.py --data-path ./data/DeadTrees_2023_Anis_ShapeStudy.gpkg --output-dir ./output
 
 scp data/clusters.csv rahmanan@lumi.csc.fi:/scratch/project_462000684/rahmanan/tree_clusters/data/
 

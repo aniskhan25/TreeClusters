@@ -33,8 +33,31 @@ else
     exit 1
 fi
 
-# Set necessary environment variables for inference.
-export DATA_PATH="$TREECLUST_DATA_PATH/DeadTrees_2023_Anis_ShapeStudy.gpkg"
+
+# Batch processing setup
+BATCH_INDEX=${2:-0}
+BATCH_DIR="$TREECLUST_OUTPUT_PATH/batches"
+mkdir -p "$BATCH_DIR"
+SPLIT_PREFIX="$BATCH_DIR/batch_"
+LINES_PER_BATCH=10000
+
+# Only split if batches don't exist
+if [ ! -f "${SPLIT_PREFIX}aa" ]; then
+    echo "[INFO] Splitting clusters.csv into batches..."
+    tail -n +2 "$TREECLUST_OUTPUT_PATH/clusters.csv" | split -l $LINES_PER_BATCH -d --additional-suffix=.csv - "$SPLIT_PREFIX"
+    for file in "$BATCH_DIR"/batch_*.csv; do
+        sed -i '1i patch_id,x,y' "$file"
+    done
+fi
+
+# Resolve current batch file
+BATCH_FILE=$(ls "$BATCH_DIR"/batch_*.csv | sed -n "$((BATCH_INDEX + 1))p")
+if [ -z "$BATCH_FILE" ]; then
+    echo "[ERROR] No batch file found for index $BATCH_INDEX"
+    exit 1
+fi
+
+echo "[INFO] Processing batch file: $BATCH_FILE"
 
 module use /appl/local/csc/modulefiles/
 module load pytorch/2.4
@@ -56,8 +79,9 @@ fi
 # Verify PATH (for debugging)
 echo "Current PATH: \$PATH"
 
+
 # Run the Python script using the virtual environment's python3
-srun python3 "$TREECLUST_REPO_PATH/src/patches.py" --data-path "$DATA_PATH" --output-dir "$TREECLUST_OUTPUT_PATH"
+srun python3 "$TREECLUST_REPO_PATH/src/patches.py" --data-path "$BATCH_FILE" --output-dir "$TREECLUST_OUTPUT_PATH"
 
 EXIT_STATUS=$?
 if [ "${EXIT_STATUS:-0}" -ne 0 ]; then

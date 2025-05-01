@@ -8,6 +8,7 @@ from rasterio.warp import transform
 import argparse
 import threading
 import pystac_client
+from functools import lru_cache
 
 import numpy as np
 import pandas as pd
@@ -20,7 +21,7 @@ from shapely.geometry import Point, box
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -55,6 +56,13 @@ class PatchProcessor:
         self.patch_id_counter = 0
 
         self.lock = threading.Lock()
+        self._transformer_to_wgs84 = None
+        self.dataset_paths = None
+        self.dataset_extents = [300.0, 100.0, 300.0]  # dtw: 300m, dem: 100m, vmi: 300m
+    @staticmethod
+    @lru_cache(maxsize=32)
+    def open_dataset(href):
+        return rasterio.open(href)
 
     def load_cluster_data(self, num_samples=None, source_type="csv", gpkg_layer=None):
         if source_type == "csv":
@@ -92,56 +100,28 @@ class PatchProcessor:
         logger.debug("Survey data loaded successfully.")
 
     def connect_to_catalog_with_retry(self, retries=3, delay=5):
-        for attempt in range(retries):
-            try:
-                self.catalog = pystac_client.Client.open(self.catalog_url)
-                logger.debug(f"Connected to catalog: {self.catalog.title}")
-                return
-            except pystac_client.exceptions.APIError as e:
-                logger.error(f"Connection failed: {e}. Retrying {retries - attempt - 1} more times...")
-                time.sleep(delay)
-        raise ConnectionError(f"Failed to connect to STAC catalog after {retries} retries.")
+        pass
 
     def search_catalog(self, lon, lat, collections_info):
-        results = []
-        try:
-            for info in collections_info.values():
-                search = self.catalog.search(
-                    intersects={"type": "Point", "coordinates": [lon, lat]},
-                    collections=[info['collection']],
-                    datetime=f"{info['year_start']}-01-01/{info['year_end']}-12-31",
-                )
-                items = search.item_collection()
+        pass
 
-                if items:
-                    results.append(items[0])  # Assume the first item is relevant
-                    logger.debug(f"Found item in collection {info['collection']}.")
-                else:
-                    logger.debug(f"No items found in collection {info['collection']}.")
-        except pystac_client.exceptions.APIError as e:
-            logger.error(f"STAC query failed for point ({lon}, {lat}): {e}")
-        return results
-
-    def extract_patch(self, lon, lat, raster_url):
-        default_extent = self.patch_size * self.resolution
-        extent = max(default_extent, self.min_extent)
+    def extract_patch_from_dataset(self, lon, lat, dataset, extent):
+        extent = max(extent, self.min_extent)
         half_size = extent / 2.0
 
-        with rasterio.open(raster_url) as src:
-            x_list, y_list = transform("EPSG:4326", src.crs, [lon], [lat])
-            x_center, y_center = x_list[0], y_list[0]
+        x_list, y_list = transform("EPSG:4326", dataset.crs, [lon], [lat])
+        x_center, y_center = x_list[0], y_list[0]
 
-            left = x_center - half_size
-            bottom = y_center - half_size
-            right = x_center + half_size
-            top = y_center + half_size
+        left = x_center - half_size
+        bottom = y_center - half_size
+        right = x_center + half_size
+        top = y_center + half_size
 
-            window = rasterio.windows.from_bounds(left, bottom, right, top, src.transform)
+        window = rasterio.windows.from_bounds(left, bottom, right, top, dataset.transform)
+        patch = dataset.read(window=window, boundless=True, fill_value=dataset.nodata)
+        new_transform = dataset.window_transform(window)
 
-            patch = src.read(window=window, boundless=True, fill_value=src.nodata)
-            new_transform = src.window_transform(window)
-
-            return patch, new_transform, src.crs
+        return patch, new_transform, dataset.crs
 
     def save_patch_as_tiff(self, patch, transform, crs, patch_filepath, band_descriptions):
         profile = {
@@ -161,26 +141,20 @@ class PatchProcessor:
 
         logger.debug(f"Patch saved to {patch_filepath} with band descriptions: {band_descriptions}")
 
-    def create_extended_patch(self, lon, lat, items, patch_id, output_dir, collection_names):
-        for idx, item in enumerate(items):
-            asset_keys = list(item.assets.keys())
-            if len(asset_keys) < 1:
-                logger.debug(f"No assets found for item {item.id}. Skipping.")
-                continue
+    def create_extended_patch(self, lon, lat, dataset_paths, patch_id, output_dir, collection_names):
+        for idx, dataset_path in enumerate(dataset_paths):
+            with self.open_dataset(dataset_path) as dataset:
+                extent = self.dataset_extents[idx]
+                patch, transform, crs = self.extract_patch_from_dataset(lon, lat, dataset, extent)
+                patch_filepath = os.path.join(output_dir, collection_names[idx], patch_id + '.tif')
 
-            logger.debug(f"Processing item {item.id} with assets: {asset_keys}")
-
-            patch, transform, crs = self.extract_patch(lon, lat, item.assets[asset_keys[0]].href)
-
-            patch_filepath = os.path.join(output_dir, collection_names[idx], patch_id + '.tif')
-
-            self.save_patch_as_tiff(
-                patch,
-                transform,
-                crs,
-                patch_filepath,
-                [f"Band_{i+1}" for i in range(patch.shape[0])],
-            )
+                self.save_patch_as_tiff(
+                    patch,
+                    transform,
+                    crs,
+                    patch_filepath,
+                    [f"Band_{i+1}" for i in range(patch.shape[0])],
+                )
 
     def plot_patch(self, patch):
         norm_patch = (patch - np.nanmin(patch)) / (np.nanmax(patch) - np.nanmin(patch))
@@ -206,20 +180,22 @@ class PatchProcessor:
 
         logger.debug(f"Processing survey point {idx}: x={x}, y={y}")
 
-        lon, lat = transform(f"EPSG:{self.epsg}", "EPSG:4326", [x], [y])
-        lon, lat = lon[0], lat[0]
+        if self._transformer_to_wgs84 is None:
+            from pyproj import Transformer
+            self._transformer_to_wgs84 = Transformer.from_crs(self.epsg, 4326, always_xy=True)
+        lon, lat = self._transformer_to_wgs84.transform(x, y)
 
-        # x_list, y_list = rasterio.warp.transform("EPSG:4326", f"EPSG:{self.epsg}", [x], [y])
-        # x, y = x_list[0], y_list[0]
         point_geom = Point(x, y)
 
-        safe_margin = (self.patch_size / 2) * self.resolution
+        # Compute per-dataset safe margins
+        safe_margins = [extent / 2.0 for extent in self.dataset_extents]
+        max_safe_margin = max(safe_margins)
 
         point_bbox = (
-            x - safe_margin,
-            y - safe_margin,
-            x + safe_margin,
-            y + safe_margin,
+            x - max_safe_margin,
+            y - max_safe_margin,
+            x + max_safe_margin,
+            y + max_safe_margin,
         )
 
         assigned_patch_filename = None
@@ -229,11 +205,15 @@ class PatchProcessor:
                 footprint, patch_filename, existing_patch_id = self.extracted_patch_mapping[numeric_patch_id]
                 minx, miny, maxx, maxy = footprint.bounds
 
+                # Use primary dataset's extent for margin check
+                patch_extent = self.dataset_extents[0]  # assume primary dataset (e.g., dtw) defines patch size
+                safe_margin = patch_extent / 2.0
+
                 if (
-                    x - minx >= safe_margin
-                    and maxx - x >= safe_margin
-                    and y - miny >= safe_margin
-                    and maxy - y >= safe_margin
+                    x >= minx + safe_margin and
+                    x <= maxx - safe_margin and
+                    y >= miny + safe_margin and
+                    y <= maxy - safe_margin
                 ):
                     assigned_patch_id = existing_patch_id
                     assigned_patch_filename = patch_filename
@@ -252,30 +232,30 @@ class PatchProcessor:
             )
             return
 
-        items = self.search_catalog(lon, lat, collections_info)
-        if len(items) < len(collection_names):
-            logger.debug(f"Skipping survey point {idx} due to insufficient data from collections.")
-            return
-
+        # Instead of querying STAC, use local dataset_paths
+        successful = False
         try:
-            self.create_extended_patch(lon, lat, items, patch_id, output_dir, collection_names)
-            self.record_mapping(patch_id, patch_id + '.tif', patch_id, x, y)
-            logger.debug(f"Extracted patches for survey point {patch_id}.")
-
-            patch_extent = self.patch_size * self.resolution
-            patch_footprint = box(x - patch_extent, y - patch_extent, x + patch_extent, y + patch_extent)
-
-            with self.lock:
-                numeric_patch_id = self.patch_id_counter
-                self.patch_id_counter += 1
-                self.patch_index.insert(numeric_patch_id, patch_footprint.bounds)
-                self.extracted_patch_mapping[numeric_patch_id] = (
-                    patch_footprint,
-                    patch_id + '.tif',
-                    patch_id,
-                )
+            self.create_extended_patch(lon, lat, self.dataset_paths, patch_id, output_dir, collection_names)
+            successful = True
         except Exception as e:
-            logger.error(f"Failed to process survey point {idx} due to error: {e}")
+            logger.error(f"Failed to extract all patches for survey point {idx}: {e}")
+        finally:
+            self.record_mapping(patch_id, patch_id + '.tif', patch_id, x, y)
+            if successful:
+                logger.debug(f"Extracted patches for survey point {patch_id}.")
+
+        patch_extent = self.patch_size * self.resolution
+        patch_footprint = box(x - patch_extent, y - patch_extent, x + patch_extent, y + patch_extent)
+
+        with self.lock:
+            numeric_patch_id = self.patch_id_counter
+            self.patch_id_counter += 1
+            self.patch_index.insert(numeric_patch_id, patch_footprint.bounds)
+            self.extracted_patch_mapping[numeric_patch_id] = (
+                patch_footprint,
+                patch_id + '.tif',
+                patch_id,
+            )
 
     def record_mapping(self, sequence_num, patch_file, survey_idx, x, y):
         if not self.mapping_file:
@@ -320,46 +300,65 @@ def main():
     data_path = args.data_path
     output_dir = args.output_dir
 
-    catalog_url = "https://paituli.csc.fi/geoserver/ogc/stac/v1"
     patch_size = 1200
     buffer = 5000
     resolution = 0.25  # in meters
     epsg = 3067
 
+    # Define collections_info with metadata
     collections_info = {
         "dtw": {
-            "collection": "luke_dtw_2m_0_5ha_threshold_at_paituli",
-            "year_start": 2019,
-            "year_end": 2019,
+            "name": "dtw",
+            "path": "./data/vrt/dtw_005.vrt",
+            "year_start": 2023,
+            "year_end": 2023,
+            "min_extent": 300.0
         },
         "dem": {
-            "collection": "nls_digital_elevation_model_2m_at_paituli",
+            "name": "dem",
+            "path": "./data/vrt/dem_2m.vrt",
             "year_start": 2008,
             "year_end": 2020,
+            "min_extent": 200.0
         },
         "vmi": {
-            "collection": "luke_vmi_latvuspeitto_at_paituli",
+            "name": "vmi",
+            "path": "./data/vmi/2021/latvuspeitto_vmi1x_1721.tif",
             "year_start": 2021,
             "year_end": 2021,
-        },
+            "min_extent": 300.0
+        }
     }
 
-    # collections = [info["collection"] for info in collections_info.values()]
     collection_names = list(collections_info.keys())
 
     processor = PatchProcessor(
         data_path=data_path,
-        catalog_url=catalog_url,
+        catalog_url=None,
         patch_size=patch_size,
         buffer=buffer,
         resolution=resolution,
         epsg=epsg,
     )
 
-    processor.load_cluster_data(source_type="gpkg")
+    processor.dataset_paths = [collections_info[name]["path"] for name in collection_names]
+    processor.dataset_extents = [collections_info[name]["min_extent"] for name in collection_names]
+
+    def _determine_source_type():
+        _, file_extension = os.path.splitext(data_path)
+        if file_extension.lower() == ".csv":
+            return "csv"
+        elif file_extension.lower() == ".gpkg":
+            return "gpkg"
+        else:
+            raise ValueError("Unsupported file type. Use a .csv or .gpkg file.")
+
+    source_type = _determine_source_type()
+
+    processor.load_cluster_data(source_type=source_type)
     # processor.load_cluster_data(num_samples=1)  # USE ONLY FOR DEBUGGING
 
-    processor.connect_to_catalog_with_retry()
+    # No longer connect to catalog
 
     processor.setup_mapping_file(output_dir)
 
@@ -367,24 +366,23 @@ def main():
         patches_dir = os.path.join(output_dir, name)
         os.makedirs(patches_dir, exist_ok=True)
 
+    existing_patches = set()
+    for name in collection_names:
+        patches_dir = os.path.join(output_dir, name)
+        existing_patches.update(
+            os.path.splitext(f)[0] for f in os.listdir(patches_dir) if f.endswith(".tif")
+        )
+
     def process_cluster_row(idx, row):
         try:
             patch_id = row["patch_id"]
             patch_filename = f"{patch_id}.tif"
 
-            # Check if any of the patch files already exist
-            patch_exists = False
-            for name in collection_names:
-                patch_filepath = os.path.join(output_dir, name, patch_filename)
-                if os.path.exists(patch_filepath):
-                    logger.debug(f"File {patch_filename} already exists. Skipping survey point {patch_id}.")
-                    patch_exists = True
-                    break  # Stop checking further if one file is found
-
-            if not patch_exists:
-                processor.process_survey_point(idx, output_dir, collections_info)
+            patch_exists = patch_id in existing_patches
+            if patch_exists:
+                logger.debug(f"File {patch_filename} already exists. Skipping survey point {patch_id}.")
             else:
-                logger.debug(f"Skipping processing for survey point {patch_id} because file already exists.")
+                processor.process_survey_point(idx, output_dir, collections_info)
 
         except Exception as e:
             logger.error(f"Error processing survey point {patch_id}: {e}")
@@ -412,7 +410,10 @@ if __name__ == "__main__":
 
 Usage:
 
-python ./src/patches.py --data-path ./data/DeadTrees_2023_Anis_ShapeStudy.gpkg --output-dir ./output_shape
+gdal_translate "STACIT:\"https://paituli.csc.fi/geoserver/ogc/stac/v1/search?collections=luke_dtw_2m_0_5ha_threshold_at_paituli&datetime=2023-01-01/2023-12-31\":asset=luke_dtw_2m_0_5ha_threshold_at_paituli_tiff" -oo max_items=0 -of VRT dtw_005.vrt
+gdal_translate "STACIT:\"https://paituli.csc.fi/geoserver/ogc/stac/v1/search?collections=nls_digital_elevation_model_2m_at_paituli&datetime=2008-01-01/2020-12-31\":asset=nls_digital_elevation_model_2m_at_paituli_tiff" -oo max_items=0 -of VRT dem_2m.vrt
+
+python ./src/patches.py --data-path ./output/sample.csv --output-dir ./output
 
 sbatch ~/TreeClusters/scripts/run_patches.sh lumi
 
