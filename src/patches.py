@@ -239,7 +239,6 @@ class PatchProcessor:
         # Instead of querying STAC, use local dataset_paths
         successful = False
         try:
-            logger.debug(self.dataset_paths)
             self.create_extended_patch(lon, lat, self.dataset_paths, patch_id, output_dir, collection_names)
             successful = True
         except Exception as e:
@@ -387,6 +386,7 @@ def main():
             if patch_exists:
                 logger.debug(f"File {patch_filename} already exists. Skipping survey point {patch_id}.")
             else:
+                logger.debug(f"Processing survey point {patch_id} ...")
                 processor.process_survey_point(row_idx, output_dir, collections_info)
 
         except Exception as e:
