@@ -238,6 +238,11 @@ class PatchProcessor:
         with self.lock:
             for numeric_patch_id in self.patch_index.intersection(point_bbox):
                 footprint, patch_filename, existing_patch_id = self.extracted_patch_mapping[numeric_patch_id]
+
+                # Skip if matching to itself
+                if existing_patch_id == patch_id:
+                    continue
+
                 minx, miny, maxx, maxy = footprint.bounds
 
                 # Use primary dataset's extent for margin check
@@ -253,7 +258,7 @@ class PatchProcessor:
                     assigned_patch_id = existing_patch_id
                     assigned_patch_filename = patch_filename
                     logger.debug(
-                        f"Survey point {existing_patch_id} assigned to existing patch {os.path.basename(patch_filename)} with safe margin."
+                        f"Survey point {patch_id} assigned to existing patch {os.path.basename(patch_filename)} with safe margin."
                     )
                     break
 
