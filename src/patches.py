@@ -85,7 +85,7 @@ class PatchProcessor:
 
         def generate_patch_id(row):
             unique_str = f"{row['x']}_{row['y']}"
-            return hashlib.md5(unique_str.encode()).hexdigest()[:8]
+            return hashlib.md5(unique_str.encode()).hexdigest()
 
         def add_patch_ids(df):
             df["patch_id"] = df.apply(generate_patch_id, axis=1)
@@ -317,6 +317,7 @@ class PatchProcessor:
     def setup_mapping_file(self, output_dir):
         os.makedirs(output_dir, exist_ok=True)
         self.mapping_file = os.path.join(output_dir, "mapping.csv")
+        logger.debug(f"Mapping file path set to {self.mapping_file}")
         if os.path.isfile(self.mapping_file):
             self.processed_sequences = pd.read_csv(self.mapping_file)["TreeID"].tolist()
             logger.debug(f"Loaded {len(self.processed_sequences)} processed sequences from mapping file.")
