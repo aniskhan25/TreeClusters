@@ -144,15 +144,23 @@ class PatchProcessor:
             "transform": transform,
         }
 
+        # Log patch stats before writing
+        logger.debug(f"Patch stats - min: {patch.min()}, max: {patch.max()}, dtype: {patch.dtype}")
+        import numpy as np
+        if np.all(patch == patch.flat[0]):
+            logger.warning(f"Patch is uniform with value {patch.flat[0]} — may contain only nodata.")
+
         with rasterio.open(patch_filepath, "w", **profile) as dst:
             dst.write(patch)
             for i, description in enumerate(band_descriptions, start=1):
                 dst.set_band_description(i, description)
 
-        logger.debug(f"Patch saved to {patch_filepath} with band descriptions: {band_descriptions}")
-        # Post-write verification to ensure file was actually written
+        # Short delay to account for file system lag, then verify file existence
+        import time
+        time.sleep(0.1)  # Delay to account for file system write lag
         if not os.path.isfile(patch_filepath):
             raise IOError(f"Patch file was not successfully written: {patch_filepath}")
+        logger.debug(f"Patch verified on disk: {patch_filepath} with band descriptions: {band_descriptions}")
 
     def create_extended_patch(self, lon, lat, dataset_paths, patch_id, output_dir, collection_names):
         written_patches = []
@@ -250,6 +258,7 @@ class PatchProcessor:
                     break
 
         if assigned_patch_filename is not None:
+            logger.debug(f"Survey point {idx} already assigned to patch {assigned_patch_filename}.")
             self.record_mapping(
                 patch_id,
                 assigned_patch_filename,
