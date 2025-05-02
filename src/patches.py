@@ -116,7 +116,11 @@ class PatchProcessor:
         top = y_center + half_size
 
         window = rasterio.windows.from_bounds(left, bottom, right, top, dataset.transform)
+        logger.debug(f"Extracting patch from dataset with bounds: {left}, {bottom}, {right}, {top}")
+
         patch = dataset.read(window=window, boundless=True, fill_value=dataset.nodata)
+        logger.debug(f"Patch shape: {patch.shape}")
+
         new_transform = dataset.window_transform(window)
 
         return patch, new_transform, dataset.crs
@@ -141,6 +145,7 @@ class PatchProcessor:
 
     def create_extended_patch(self, lon, lat, dataset_paths, patch_id, output_dir, collection_names):
         for idx, dataset_path in enumerate(dataset_paths):
+            logger.debug(f"Processing dataset {dataset_path} for patch ID {patch_id}")
             with self.open_dataset(dataset_path) as dataset:
                 extent = self.dataset_extents[idx]
                 patch, transform, crs = self.extract_patch_from_dataset(lon, lat, dataset, extent)
@@ -153,6 +158,7 @@ class PatchProcessor:
                     patch_filepath,
                     [f"Band_{i+1}" for i in range(patch.shape[0])],
                 )
+            logger.debug(f"Patch {patch_id} extracted from {dataset_path}.")
 
     def plot_patch(self, patch):
         norm_patch = (patch - np.nanmin(patch)) / (np.nanmax(patch) - np.nanmin(patch))
