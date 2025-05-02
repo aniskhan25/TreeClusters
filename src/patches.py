@@ -149,6 +149,7 @@ class PatchProcessor:
         for idx, dataset_path in enumerate(dataset_paths):
             logger.debug(f"Processing dataset {dataset_path} for patch ID {patch_id}")
             with self.open_dataset(dataset_path) as dataset:
+                logger.debug(f"Opened dataset: {dataset_path}")
                 extent = self.dataset_extents[idx]
                 patch, transform, crs = self.extract_patch_from_dataset(lon, lat, dataset, extent)
                 patch_filepath = os.path.join(output_dir, collection_names[idx], patch_id + '.tif')
