@@ -152,7 +152,7 @@ class PatchProcessor:
         logger.debug(f"Patch saved to {patch_filepath} with band descriptions: {band_descriptions}")
 
     def create_extended_patch(self, lon, lat, dataset_paths, patch_id, output_dir, collection_names):
-        any_success = False
+        written_patches = []
         for idx, dataset_path in enumerate(dataset_paths):
             try:
                 logger.debug(f"Processing dataset {dataset_path} for patch ID {patch_id}")
@@ -172,10 +172,10 @@ class PatchProcessor:
                         [f"Band_{i+1}" for i in range(patch.shape[0])],
                     )
                 logger.debug(f"Patch {patch_id} extracted from {dataset_path}.")
-                any_success = True
+                written_patches.append(patch_filepath)
             except Exception as e:
                 logger.warning(f"Failed to process dataset {dataset_path} for patch ID {patch_id}: {e}")
-        return any_success
+        return written_patches
 
     def plot_patch(self, patch):
         norm_patch = (patch - np.nanmin(patch)) / (np.nanmax(patch) - np.nanmin(patch))
@@ -255,12 +255,12 @@ class PatchProcessor:
 
         # Instead of querying STAC, use local dataset_paths
         try:
-            successful = self.create_extended_patch(lon, lat, self.dataset_paths, patch_id, output_dir, collection_names)
+            written_patches = self.create_extended_patch(lon, lat, self.dataset_paths, patch_id, output_dir, collection_names)
         except Exception as e:
             logger.error(f"Failed to extract all patches for survey point {idx}: {e}")
-            successful = False
-        if successful:
-            self.record_mapping(patch_id, patch_id + '.tif', patch_id, x, y)
+            written_patches = []
+        if written_patches:
+            self.record_mapping(patch_id, os.path.basename(written_patches[0]), patch_id, x, y)
             logger.debug(f"Extracted patches for survey point {patch_id}.")
 
         patch_extent = self.patch_size * self.resolution
