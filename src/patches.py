@@ -105,6 +105,7 @@ class PatchProcessor:
         pass
 
     def extract_patch_from_dataset(self, lon, lat, dataset, extent):
+        logger.debug(f"Extracting patch from dataset at lon: {lon}, lat: {lat}, extent: {extent}")
         extent = max(extent, self.min_extent)
         half_size = extent / 2.0
 
