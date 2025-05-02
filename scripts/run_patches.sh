@@ -5,8 +5,8 @@
 #SBATCH --output=output/stdout/%A_%a.out
 #SBATCH --error=output/stderr/%A_%a.err
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=2
-#SBATCH --time=00:15:00
+#SBATCH --cpus-per-task=12
+#SBATCH --time=15:00:00
 #SBATCH --partition=small
 #SBATCH --mem-per-cpu=6000
 
@@ -39,7 +39,7 @@ BATCH_INDEX=${2:-0}
 BATCH_DIR="$TREECLUST_OUTPUT_PATH/batches"
 mkdir -p "$BATCH_DIR"
 SPLIT_PREFIX="$BATCH_DIR/batch_"
-LINES_PER_BATCH=100
+LINES_PER_BATCH=10000
 
 # Only split if batches don't exist
 if [ ! -f "${SPLIT_PREFIX}aa" ]; then

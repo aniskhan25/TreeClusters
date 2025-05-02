@@ -19,7 +19,7 @@ from tqdm import tqdm
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -122,7 +122,7 @@ class PatchProcessor:
 
         logger.debug(f"Dataset dtype: {dataset.dtypes}")
         logger.debug(f"Nodata value: {dataset.nodata}")
-        logger.debug(f"Meta: {dataset.meta}")
+        # logger.debug(f"Meta: {dataset.meta}")
 
         fill_val = dataset.nodata if dataset.nodata is not None else 0
         fill_val = np.array(fill_val).astype(dataset.dtypes[0]).item()
