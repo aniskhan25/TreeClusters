@@ -120,7 +120,8 @@ class PatchProcessor:
         window = rasterio.windows.from_bounds(left, bottom, right, top, dataset.transform)
         logger.debug(f"Extracting patch from dataset with bounds: {left}, {bottom}, {right}, {top}")
 
-        patch = dataset.read(window=window, boundless=True, fill_value=dataset.nodata)
+        fill_val = dataset.nodata if dataset.nodata is not None else 0
+        patch = dataset.read(window=window, boundless=True, fill_value=fill_val)
         logger.debug(f"Patch shape: {patch.shape}")
 
         new_transform = dataset.window_transform(window)
