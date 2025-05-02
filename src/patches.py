@@ -60,6 +60,7 @@ class PatchProcessor:
     @staticmethod
     @lru_cache(maxsize=32)
     def open_dataset(href):
+        logger.debug(f"Opening dataset: {href}")
         return rasterio.open(href)
 
     def load_cluster_data(self, num_samples=None, source_type="csv", gpkg_layer=None):
