@@ -150,6 +150,9 @@ class PatchProcessor:
                 dst.set_band_description(i, description)
 
         logger.debug(f"Patch saved to {patch_filepath} with band descriptions: {band_descriptions}")
+        # Post-write verification to ensure file was actually written
+        if not os.path.isfile(patch_filepath):
+            raise IOError(f"Patch file was not successfully written: {patch_filepath}")
 
     def create_extended_patch(self, lon, lat, dataset_paths, patch_id, output_dir, collection_names):
         written_patches = []
@@ -172,7 +175,10 @@ class PatchProcessor:
                         [f"Band_{i+1}" for i in range(patch.shape[0])],
                     )
                 logger.debug(f"Patch {patch_id} extracted from {dataset_path}.")
-                written_patches.append(patch_filepath)
+                if os.path.exists(patch_filepath):
+                    written_patches.append(patch_filepath)
+                else:
+                    logger.warning(f"Patch file was not found after save attempt: {patch_filepath}")
             except Exception as e:
                 logger.warning(f"Failed to process dataset {dataset_path} for patch ID {patch_id}: {e}")
         return written_patches
@@ -408,19 +414,12 @@ def main():
         except Exception as e:
             logger.error(f"Error processing survey point {patch_id}: {e}")
 
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        futures = []
-        total_rows = len(processor.cluster_df)
-        for row_idx, row in enumerate(processor.cluster_df.itertuples(index=False)):
-            logger.debug(f"Submitting survey point {row_idx} out of {total_rows} ...")
-            future = executor.submit(process_cluster_row, row_idx, row)
-            futures.append(future)
-
-        for future in tqdm(as_completed(futures), total=total_rows, desc="Processing survey points"):
-            try:
-                future.result()
-            except Exception as exc:
-                logger.error(f"Exception occurred during parallel processing: {exc}")
+    total_rows = len(processor.cluster_df)
+    for row_idx, row in enumerate(
+        tqdm(processor.cluster_df.itertuples(index=False), total=total_rows, desc="Processing survey points")
+    ):
+        logger.debug(f"Processing survey point {row_idx} out of {total_rows} ...")
+        process_cluster_row(row_idx, row)
 
 
 if __name__ == "__main__":
