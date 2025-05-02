@@ -125,6 +125,7 @@ class PatchProcessor:
         logger.debug(f"Meta: {dataset.meta}")
 
         fill_val = dataset.nodata if dataset.nodata is not None else 0
+        fill_val = np.array(fill_val).astype(dataset.dtypes[0]).item()
         patch = dataset.read(window=window, boundless=True, fill_value=fill_val)
         logger.debug(f"Patch shape: {patch.shape}")
 
