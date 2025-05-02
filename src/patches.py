@@ -19,7 +19,7 @@ from tqdm import tqdm
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -161,7 +161,7 @@ class PatchProcessor:
                 patch_filepath = os.path.join(output_dir, collection_names[idx], patch_id + '.tif')
 
                 logger.debug(f"Saving patch to {patch_filepath}")
-                
+
                 self.save_patch_as_tiff(
                     patch,
                     transform,
