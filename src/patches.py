@@ -58,7 +58,6 @@ class PatchProcessor:
         self.dataset_paths = None
         self.dataset_extents = [300.0, 100.0, 300.0]  # dtw: 300m, dem: 100m, vmi: 300m
     @staticmethod
-    @lru_cache(maxsize=32)
     def open_dataset(href):
         logger.debug(f"Opening dataset: {href}")
         return rasterio.open(href)
@@ -283,18 +282,18 @@ class PatchProcessor:
             self.record_mapping(patch_id, os.path.basename(written_patches[0]), patch_id, x, y)
             logger.debug(f"Extracted patches for survey point {patch_id}.")
 
-        patch_extent = self.patch_size * self.resolution
-        patch_footprint = box(x - patch_extent, y - patch_extent, x + patch_extent, y + patch_extent)
+            patch_extent = self.patch_size * self.resolution
+            patch_footprint = box(x - patch_extent, y - patch_extent, x + patch_extent, y + patch_extent)
 
-        with self.lock:
-            numeric_patch_id = self.patch_id_counter
-            self.patch_id_counter += 1
-            self.patch_index.insert(numeric_patch_id, patch_footprint.bounds)
-            self.extracted_patch_mapping[numeric_patch_id] = (
-                patch_footprint,
-                patch_id + '.tif',
-                patch_id,
-            )
+            with self.lock:
+                numeric_patch_id = self.patch_id_counter
+                self.patch_id_counter += 1
+                self.patch_index.insert(numeric_patch_id, patch_footprint.bounds)
+                self.extracted_patch_mapping[numeric_patch_id] = (
+                    patch_footprint,
+                    os.path.basename(written_patches[0]),
+                    patch_id,
+                )
 
     def record_mapping(self, sequence_num, patch_file, survey_idx, x, y):
         if not self.mapping_file:
