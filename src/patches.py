@@ -160,6 +160,8 @@ class PatchProcessor:
                 patch, transform, crs = self.extract_patch_from_dataset(lon, lat, dataset, extent)
                 patch_filepath = os.path.join(output_dir, collection_names[idx], patch_id + '.tif')
 
+                logger.debug(f"Saving patch to {patch_filepath}")
+                
                 self.save_patch_as_tiff(
                     patch,
                     transform,
