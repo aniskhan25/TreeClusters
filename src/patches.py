@@ -19,7 +19,7 @@ from tqdm import tqdm
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -152,6 +152,7 @@ class PatchProcessor:
         logger.debug(f"Patch saved to {patch_filepath} with band descriptions: {band_descriptions}")
 
     def create_extended_patch(self, lon, lat, dataset_paths, patch_id, output_dir, collection_names):
+        any_success = False
         for idx, dataset_path in enumerate(dataset_paths):
             try:
                 logger.debug(f"Processing dataset {dataset_path} for patch ID {patch_id}")
@@ -171,8 +172,10 @@ class PatchProcessor:
                         [f"Band_{i+1}" for i in range(patch.shape[0])],
                     )
                 logger.debug(f"Patch {patch_id} extracted from {dataset_path}.")
+                any_success = True
             except Exception as e:
                 logger.warning(f"Failed to process dataset {dataset_path} for patch ID {patch_id}: {e}")
+        return any_success
 
     def plot_patch(self, patch):
         norm_patch = (patch - np.nanmin(patch)) / (np.nanmax(patch) - np.nanmin(patch))
@@ -251,16 +254,14 @@ class PatchProcessor:
             return
 
         # Instead of querying STAC, use local dataset_paths
-        successful = False
         try:
-            self.create_extended_patch(lon, lat, self.dataset_paths, patch_id, output_dir, collection_names)
-            successful = True
+            successful = self.create_extended_patch(lon, lat, self.dataset_paths, patch_id, output_dir, collection_names)
         except Exception as e:
             logger.error(f"Failed to extract all patches for survey point {idx}: {e}")
-        finally:
+            successful = False
+        if successful:
             self.record_mapping(patch_id, patch_id + '.tif', patch_id, x, y)
-            if successful:
-                logger.debug(f"Extracted patches for survey point {patch_id}.")
+            logger.debug(f"Extracted patches for survey point {patch_id}.")
 
         patch_extent = self.patch_size * self.resolution
         patch_footprint = box(x - patch_extent, y - patch_extent, x + patch_extent, y + patch_extent)
