@@ -39,7 +39,7 @@ BATCH_INDEX=${2:-0}
 BATCH_DIR="$TREECLUST_OUTPUT_PATH/batches"
 mkdir -p "$BATCH_DIR"
 SPLIT_PREFIX="$BATCH_DIR/batch_"
-LINES_PER_BATCH=10000
+LINES_PER_BATCH=100
 
 # Only split if batches don't exist
 if [ ! -f "${SPLIT_PREFIX}aa" ]; then
