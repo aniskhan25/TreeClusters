@@ -430,6 +430,7 @@ Usage:
 module use /appl/local/csc/modulefiles
 module load geoconda
 
+gdal_translate "STACIT:\"https://paituli.csc.fi/geoserver/ogc/stac/v1/search?collections=luke_dtw_2m_0_5ha_threshold_at_paituli&datetime=2019-01-01/2019-12-31\":asset=luke_dtw_2m_0_5ha_threshold_at_paituli_tiff" -oo max_items=0 -of VRT dtw_005.vrt
 gdal_translate "STACIT:\"https://paituli.csc.fi/geoserver/ogc/stac/v1/search?collections=luke_dtw_2m_0_5ha_threshold_at_paituli&datetime=2023-01-01/2023-12-31\":asset=luke_dtw_2m_0_5ha_threshold_at_paituli_tiff" -oo max_items=0 -of VRT dtw_005.vrt
 gdal_translate "STACIT:\"https://paituli.csc.fi/geoserver/ogc/stac/v1/search?collections=nls_digital_elevation_model_2m_at_paituli&datetime=2008-01-01/2020-12-31\":asset=nls_digital_elevation_model_2m_at_paituli_tiff" -oo max_items=0 -of VRT dem_2m.vrt
 
@@ -440,5 +441,7 @@ python ./src/patches.py --data-path ./output/sample.csv --output-dir ./output
 sbatch ~/TreeClusters/scripts/run_patches.sh lumi 0
 
 scp rahmanan@lumi.csc.fi:/scratch/project_462000684/rahmanan/tree_clusters/output/mapping.csv ./output
+
+scp rahmanan@lumi.csc.fi:/scratch/project_462000684/rahmanan/output/stderr/10626796_4294967294.err ./output
 
 '''
