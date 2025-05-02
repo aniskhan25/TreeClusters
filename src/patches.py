@@ -153,23 +153,26 @@ class PatchProcessor:
 
     def create_extended_patch(self, lon, lat, dataset_paths, patch_id, output_dir, collection_names):
         for idx, dataset_path in enumerate(dataset_paths):
-            logger.debug(f"Processing dataset {dataset_path} for patch ID {patch_id}")
-            with self.open_dataset(dataset_path) as dataset:
-                logger.debug(f"Opened dataset: {dataset_path}")
-                extent = self.dataset_extents[idx]
-                patch, transform, crs = self.extract_patch_from_dataset(lon, lat, dataset, extent)
-                patch_filepath = os.path.join(output_dir, collection_names[idx], patch_id + '.tif')
+            try:
+                logger.debug(f"Processing dataset {dataset_path} for patch ID {patch_id}")
+                with self.open_dataset(dataset_path) as dataset:
+                    logger.debug(f"Opened dataset: {dataset_path}")
+                    extent = self.dataset_extents[idx]
+                    patch, transform, crs = self.extract_patch_from_dataset(lon, lat, dataset, extent)
+                    patch_filepath = os.path.join(output_dir, collection_names[idx], patch_id + '.tif')
 
-                logger.debug(f"Saving patch to {patch_filepath}")
+                    logger.debug(f"Saving patch to {patch_filepath}")
 
-                self.save_patch_as_tiff(
-                    patch,
-                    transform,
-                    crs,
-                    patch_filepath,
-                    [f"Band_{i+1}" for i in range(patch.shape[0])],
-                )
-            logger.debug(f"Patch {patch_id} extracted from {dataset_path}.")
+                    self.save_patch_as_tiff(
+                        patch,
+                        transform,
+                        crs,
+                        patch_filepath,
+                        [f"Band_{i+1}" for i in range(patch.shape[0])],
+                    )
+                logger.debug(f"Patch {patch_id} extracted from {dataset_path}.")
+            except Exception as e:
+                logger.warning(f"Failed to process dataset {dataset_path} for patch ID {patch_id}: {e}")
 
     def plot_patch(self, patch):
         norm_patch = (patch - np.nanmin(patch)) / (np.nanmax(patch) - np.nanmin(patch))
