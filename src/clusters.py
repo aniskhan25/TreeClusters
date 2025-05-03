@@ -106,10 +106,17 @@ def main():
     cluster_centroids = clustered.groupby('cluster')[['x', 'y']].mean().reset_index()
     cluster_centroids['event_type'] = 'Clustered'
 
+    print(cluster_centroids.head())
+
     isolated_events = df_clusters[df_clusters['cluster'] == -1][['x', 'y']].copy()
     isolated_events['event_type'] = 'Isolated'
 
-    final_events = pd.concat([cluster_centroids, isolated_events], ignore_index=True)
+    # Ensure 'cluster' column is present in both DataFrames
+    cluster_centroids = cluster_centroids.rename(columns={'cluster': 'cluster'})
+    isolated_events['cluster'] = -1
+
+    final_events = pd.concat([cluster_centroids[['cluster', 'x', 'y', 'event_type']],
+                              isolated_events[['cluster', 'x', 'y', 'event_type']]], ignore_index=True)
     final_events.to_csv(os.path.join(output_dir, 'clusters.csv'), index=False)
 
     print(f"Number of clustered trees: {len(clustered)}")
