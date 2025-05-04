@@ -426,7 +426,9 @@ def main():
                 processor.process_survey_point(row_idx, output_dir, collections_info)
 
         except Exception as e:
-            logger.error(f"Error processing survey point {patch_id}: {e}")
+            x = processor.cluster_df["x"].iloc[row_idx]
+            y = processor.cluster_df["y"].iloc[row_idx]
+            logger.error(f"An error occurred while processing survey point with Patch ID: {patch_id}, Coordinates: ({x}, {y}). Error details: {e}")
 
     total_rows = len(processor.cluster_df)
     for row_idx, row in enumerate(
