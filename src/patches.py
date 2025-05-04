@@ -208,6 +208,14 @@ class PatchProcessor:
         y = self.cluster_df["y"].iloc[idx]
         patch_id = self.cluster_df["patch_id"].iloc[idx]
 
+        logger.debug(f"Raw coordinates for idx {idx}: x={x} ({type(x)}), y={y} ({type(y)})")
+        try:
+            x = float(x)
+            y = float(y)
+        except ValueError as e:
+            logger.error(f"Could not convert coordinates to float for patch ID {patch_id}: x={x}, y={y}. Error: {e}")
+            return
+
         if pd.isna(x) or pd.isna(y):
             logger.debug(f"Skipping survey point {idx} due to missing data: x={x}, y={y}")
             return
