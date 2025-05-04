@@ -282,7 +282,7 @@ def load_cluster_data(data_path):
 
     def generate_patch_id(row):
         unique_str = f"{row['x']}_{row['y']}"
-        return hashlib.md5(unique_str.encode()).hexdigest()[:8]
+        return hashlib.md5(unique_str.encode()).hexdigest()
 
     cluster_df["patch_id"] = cluster_df.apply(generate_patch_id, axis=1)
     return cluster_df
