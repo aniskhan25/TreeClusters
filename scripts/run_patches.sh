@@ -50,14 +50,17 @@ if [ ! -f "${SPLIT_PREFIX}aa" ]; then
     done
 fi
 
-# Resolve current batch file
-BATCH_FILE=$(ls "$BATCH_DIR"/batch_*.csv | sed -n "$((BATCH_INDEX + 1))p")
-if [ -z "$BATCH_FILE" ]; then
-    echo "[ERROR] No batch file found for index $BATCH_INDEX"
+# Resolve current batch file (safe, sorted, and checked)
+BATCH_FILES=($(ls "$BATCH_DIR"/batch_*.csv | sort -V))
+NUM_BATCHES=${#BATCH_FILES[@]}
+
+if (( BATCH_INDEX >= NUM_BATCHES )); then
+    echo "[ERROR] Invalid BATCH_INDEX=$BATCH_INDEX; only $NUM_BATCHES batches available."
     exit 1
 fi
 
-echo "[INFO] Processing batch file: $BATCH_FILE"
+BATCH_FILE=${BATCH_FILES[$BATCH_INDEX]}
+echo "[INFO] Processing batch index $BATCH_INDEX out of $NUM_BATCHES: $BATCH_FILE"
 
 module use /appl/local/csc/modulefiles/
 module load pytorch/2.4
