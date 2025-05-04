@@ -82,6 +82,12 @@ class PatchProcessor:
         else:
             raise ValueError("Unsupported source_type. Use 'csv' or 'gpkg'.")
 
+        # Remove rows where x or y are invalid string headers (e.g., 'x', 'y')
+        self.cluster_df = self.cluster_df[
+            ~self.cluster_df["x"].astype(str).str.lower().eq("x") &
+            ~self.cluster_df["y"].astype(str).str.lower().eq("y")
+        ]
+
         def generate_patch_id(row):
             unique_str = f"{row['x']}_{row['y']}"
             return hashlib.md5(unique_str.encode()).hexdigest()

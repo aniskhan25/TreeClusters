@@ -42,7 +42,9 @@ SPLIT_PREFIX="$BATCH_DIR/batch_"
 LINES_PER_BATCH=10000
 
 # Only split if batches don't exist
-if [ ! -f "${SPLIT_PREFIX}aa" ]; then
+if [ ! -f "${SPLIT_PREFIX}00.csv" ]; then
+    echo "[INFO] Cleaning old batch files..."
+    rm -f "$BATCH_DIR"/batch_*.csv
     echo "[INFO] Splitting clusters.csv into batches..."
     tail -n +2 "$TREECLUST_OUTPUT_PATH/clusters.csv" | split -l $LINES_PER_BATCH -d --additional-suffix=.csv - "$SPLIT_PREFIX"
     for file in "$BATCH_DIR"/batch_*.csv; do
