@@ -317,7 +317,7 @@ if __name__ == "__main__":
 
 Usage:
 
-python ./src/distances.py --data-path ./data/clusters.csv --output-dir ./output
+python ./src/distances.py --data-path ./output/clusters.csv --output-dir ./output
 
 sbatch ~/TreeClusters/scripts/run_distances.sh lumi
 
