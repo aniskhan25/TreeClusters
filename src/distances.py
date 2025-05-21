@@ -6,9 +6,8 @@ import rasterio
 
 import numpy as np
 import pandas as pd
-import geopandas as gpd
 
-from scipy.ndimage import binary_closing, binary_opening, binary_erosion, distance_transform_edt
+from scipy.ndimage import distance_transform_edt, binary_closing, binary_opening, binary_erosion
 from skimage.measure import label
 from skimage.morphology import remove_small_holes
 from rasterio.warp import reproject, Resampling
@@ -25,15 +24,46 @@ def distance_to_forest_edge(
     latitude,
     vmi_raster_path,
     dem_raster_path,
-    window_size=400,
+    window_size_m=400,  # Window size in meters
     threshold=30,
     min_patch_pixels=20,
     max_hole_pixels=20,
     weight_range=(1.05, 1.10),
     south_facing_range=(135, 225),
     kernel_size=3,
+    expected_res=0.25  # Expected resolution in meters
 ):
+    """
+    Compute the distance from a tree centroid to the nearest forest edge, with adjustments for south-facing edges.
+    Uses a windowed approach based on physical distance (meters) rather than pixels.
+
+    Args:
+        longitude (float): Longitude of the tree centroid.
+        latitude (float): Latitude of the tree centroid.
+        vmi_raster_path (str): Path to the VMI canopy cover raster.
+        dem_raster_path (str): Path to the DEM raster.
+        window_size_m (int): Size of the analysis window in meters (default: 400).
+        threshold (int): Canopy cover threshold for forest classification (default: 30).
+        min_patch_pixels (int): Minimum pixel count for a forest patch (default: 20).
+        max_hole_pixels (int): Maximum pixel count for holes to fill (default: 20).
+        weight_range (tuple): Weight range for south-facing edges (default: (1.05, 1.10)).
+        south_facing_range (tuple): Aspect range for south-facing edges in degrees (default: (135, 225)).
+        kernel_size (int): Size of the structuring element for morphological operations (default: 3).
+        expected_res (float): Expected raster resolution in meters (default: 0.25).
+
+    Returns:
+        float: Distance to the nearest forest edge in meters, or np.nan if not computable.
+    """
     with rasterio.open(vmi_raster_path) as vmi_src, rasterio.open(dem_raster_path) as dem_src:
+        # Check resolution consistency
+        if abs(vmi_src.res[0] - expected_res) > 0.01:
+            logger.warning(f"VMI resolution {vmi_src.res[0]} m differs from expected {expected_res} m.")
+        
+        # Convert window size from meters to pixels dynamically
+        pixel_size = vmi_src.res[0]
+        window_size_pixels = int(window_size_m / pixel_size)
+        half_window = window_size_pixels // 2
+
         # Get row, col indices for the point
         row, col = vmi_src.index(longitude, latitude)
 
@@ -42,7 +72,6 @@ def distance_to_forest_edge(
             return np.nan
 
         # Calculate window boundaries
-        half_window = window_size // 2
         window_col_start = max(0, col - half_window)
         window_row_start = max(0, row - half_window)
         window_col_end = min(vmi_src.width, col + half_window)
@@ -57,16 +86,15 @@ def distance_to_forest_edge(
             window_col_start, window_row_start, window_col_end - window_col_start, window_row_end - window_row_start
         )
 
+        # Read canopy cover and DEM within the window
         canopy_cover = vmi_src.read(1, window=window)
         vmi_transform = vmi_src.window_transform(window)
-        vmi_pixel_size = vmi_src.res[0]
-
         dem_window = dem_src.window(*vmi_src.window_bounds(window))
-
         dem = dem_src.read(1, window=dem_window)
         dem_transform = dem_src.window_transform(dem_window)
         dem_resampled = np.zeros_like(canopy_cover, dtype=np.float32)
 
+        # Reproject DEM to match VMI resolution and window
         reproject(
             source=dem,
             destination=dem_resampled,
@@ -77,130 +105,187 @@ def distance_to_forest_edge(
             resampling=Resampling.bilinear,
         )
 
-        dy, dx = np.gradient(dem_resampled, vmi_pixel_size)
+        # Compute aspect from DEM
+        dy, dx = np.gradient(dem_resampled, pixel_size)
         aspect_rad = np.arctan2(-dy, dx)
         aspect_deg = np.degrees(aspect_rad) % 360
 
+        # Create forest mask
         initial_forest_mask = ((canopy_cover != 32767) & (canopy_cover >= threshold)).astype(np.uint8)
         forest_mask = binary_closing(initial_forest_mask, structure=np.ones((kernel_size, kernel_size)))
         forest_mask = binary_opening(forest_mask, structure=np.ones((kernel_size, kernel_size)))
 
+        # Label and filter small forest patches
         labeled_forest, num_features = label(forest_mask, return_num=True)
-
         cleaned_forest_mask = np.zeros_like(forest_mask)
         for i in range(1, num_features + 1):
             component = labeled_forest == i
             if np.sum(component) >= min_patch_pixels:
                 cleaned_forest_mask[component] = 1
 
+        # Fill small holes in the forest mask
         filled_forest_mask = remove_small_holes(cleaned_forest_mask.astype(bool), area_threshold=max_hole_pixels)
         forest_mask = filled_forest_mask.astype(np.uint8)
 
+        # Detect forest edges
         eroded_forest = binary_erosion(forest_mask, structure=np.ones((kernel_size, kernel_size)))
         forest_edge = forest_mask ^ eroded_forest
-        # If no forest edge present in the patch, return NaN
         if not forest_edge.any():
             return np.nan
 
-        # Compute Euclidean distance transforms in meters using the raster's pixel size
-        dist_all = distance_transform_edt(1 - forest_edge, sampling=[vmi_pixel_size, vmi_pixel_size])
+        # Compute distance transform to all edges
+        dist_all = distance_transform_edt(1 - forest_edge, sampling=[pixel_size, pixel_size])
 
-        # Mask edges that face south within the specified range
+        # Adjust distances for south-facing edges
         south_facing_mask = (aspect_deg >= south_facing_range[0]) & (aspect_deg <= south_facing_range[1])
         south_facing_edges = forest_edge & south_facing_mask
-        dist_south = distance_transform_edt(1 - south_facing_edges, sampling=[vmi_pixel_size, vmi_pixel_size])
+        dist_south = distance_transform_edt(1 - south_facing_edges, sampling=[pixel_size, pixel_size])
 
-        # Compute directional weight factor for south-facing edges
         aspect_center = (south_facing_range[0] + south_facing_range[1]) / 2
         aspect_deviation = np.abs(aspect_deg - aspect_center) / ((south_facing_range[1] - south_facing_range[0]) / 2)
-
         weight_factor = np.where(
             south_facing_mask,
             weight_range[0] + (weight_range[1] - weight_range[0]) * (1 - np.minimum(aspect_deviation, 1)),
             1.0,
         )
-
         adjusted_dist = np.where(dist_south == dist_all, dist_all * weight_factor, dist_all)
 
-        # adjusted_dist = np.minimum(adjusted_dist, 300)  # Cap at patch size
-        row_in_window = row - int(window.row_off)
-        col_in_window = col - int(window.col_off)
-        # Determine maximum searchable distance (half the patch width in meters)
-        rows_patch, cols_patch = forest_edge.shape
-        max_distance = max(rows_patch, cols_patch) / 2 * vmi_pixel_size
+        # Get distance at centroid's position in the window
+        row_in_window = row - window.row_off
+        col_in_window = col - window.col_off
+        max_distance = window_size_m / 2
         dist = adjusted_dist[row_in_window, col_in_window]
         return np.nan if dist >= max_distance else dist
 
+def distance_to_nearest_wetland(
+    dtw_path, longitude, latitude, wetland_threshold=1, window_size_m=1000, expected_res=0.25
+):
+    """
+    Compute the distance from a tree centroid to the nearest wetland pixel using a windowed approach.
 
-def distance_to_nearest_wetland(dtw_path, longitude, latitude, wetland_threshold=1):
+    Args:
+        dtw_path (str): Path to the depth-to-water (DTW) raster.
+        longitude (float): Longitude of the tree centroid.
+        latitude (float): Latitude of the tree centroid.
+        wetland_threshold (float): Threshold for wetland classification (default: 1).
+        window_size_m (int): Size of the analysis window in meters (default: 1000).
+        expected_res (float): Expected raster resolution in meters (default: 0.25).
+
+    Returns:
+        float: Distance to the nearest wetland in meters, or np.nan if not computable.
+    """
     try:
         with rasterio.open(dtw_path) as src:
-            dtw = src.read(1, masked=True)
-
             pixel_size = src.res[0]
-            rows, cols = dtw.shape
+            if abs(pixel_size - expected_res) > 0.01:
+                logger.warning(f"DTW resolution {pixel_size} m differs from expected {expected_res} m.")
+
+            # Convert window size to pixels
+            window_size_pixels = int(window_size_m / pixel_size)
+            half_window = window_size_pixels // 2
 
             row, col = src.index(longitude, latitude)
+            if row < 0 or row >= src.height or col < 0 or col >= src.width:
+                return np.nan
 
-            row = max(0, min(row, rows - 1))
-            col = max(0, min(col, cols - 1))
+            # Define window bounds
+            window_col_start = max(0, col - half_window)
+            window_row_start = max(0, row - half_window)
+            window_col_end = min(src.width, col + half_window)
+            window_row_end = min(src.height, row + half_window)
 
-            # DTW index threshold (in meters) below which a pixel is considered wet.
-            # Default is 1 (i.e., pixels with DTW <1m are "wet").
-            # Fill masked (no-data) pixels with a value above threshold so they are treated as non-wetland
+            if window_col_end <= window_col_start or window_row_end <= window_row_start:
+                return np.nan
+
+            window = rasterio.windows.Window(
+                window_col_start, window_row_start,
+                window_col_end - window_col_start, window_row_end - window_row_start
+            )
+
+            dtw = src.read(1, window=window, masked=True)
+            row_in_window = row - window.row_off
+            col_in_window = col - window.col_off
+
             dtw_filled = dtw.filled(wetland_threshold + 1)
             wetland_mask = (dtw_filled < wetland_threshold).astype(np.uint8)
-            # If no wetland pixel in the patch, return NaN
             if not wetland_mask.any():
                 return np.nan
 
             distance_to_wetland = distance_transform_edt(1 - wetland_mask, sampling=[pixel_size, pixel_size])
-
-            # Determine maximum searchable distance (half the patch width in meters)
-            rows_patch, cols_patch = dtw.shape
-            max_distance = max(rows_patch, cols_patch) / 2 * pixel_size
-            dist = distance_to_wetland[row, col]
+            max_distance = window_size_m / 2
+            dist = distance_to_wetland[row_in_window, col_in_window]
             return np.nan if dist >= max_distance else dist
     except Exception as e:
-        logger.error(f"Error computing distance: {e}")
+        logger.error(f"Error computing wetland distance: {e}")
         return None
 
+def distance_to_rocky_outcrop(
+    dem_path, longitude, latitude, rock_threshold=30, kernel_size=3, window_size_m=500, expected_res=0.25
+):
+    """
+    Compute the distance from a tree centroid to the nearest rocky outcrop using a windowed approach.
 
-def distance_to_rocky_outcrop(dem_path, target_longitude, target_latitude, rock_threshold=30, kernel_size=3):
+    Args:
+        dem_path (str): Path to the DEM raster.
+        longitude (float): Longitude of the tree centroid.
+        latitude (float): Latitude of the tree centroid.
+        rock_threshold (float): Slope threshold for rocky outcrops in degrees (default: 30).
+        kernel_size (int): Size of the structuring element for morphological operations (default: 3).
+        window_size_m (int): Size of the analysis window in meters (default: 500).
+        expected_res (float): Expected raster resolution in meters (default: 0.25).
+
+    Returns:
+        float: Distance to the nearest rocky outcrop in meters, or np.nan if not computable.
+    """
     try:
         with rasterio.open(dem_path) as src:
-            dem = src.read(1, masked=True)
-
-            # Fill masked (no-data) pixels so gradient ignores them
-            dem_filled = dem.filled(np.nan)
-
             pixel_size = src.res[0]
-            rows, cols = dem.shape  # Get actual patch dimensions
-            row, col = src.index(target_longitude, target_latitude)
-            row = max(0, min(row, rows - 1))
-            col = max(0, min(col, cols - 1))
+            if abs(pixel_size - expected_res) > 0.01:
+                logger.warning(f"DEM resolution {pixel_size} m differs from expected {expected_res} m.")
 
-            dy, dx = np.gradient(dem_filled.astype("float"), pixel_size)
+            # Convert window size to pixels
+            window_size_pixels = int(window_size_m / pixel_size)
+            half_window = window_size_pixels // 2
+
+            row, col = src.index(longitude, latitude)
+            if row < 0 or row >= src.height or col < 0 or col >= src.width:
+                return np.nan
+
+            # Define window bounds
+            window_col_start = max(0, col - half_window)
+            window_row_start = max(0, row - half_window)
+            window_col_end = min(src.width, col + half_window)
+            window_row_end = min(src.height, row + half_window)
+
+            if window_col_end <= window_col_start or window_row_end <= window_row_start:
+                return np.nan
+
+            window = rasterio.windows.Window(
+                window_col_start, window_row_start,
+                window_col_end - window_col_start, window_row_end - window_row_start
+            )
+
+            dem = src.read(1, window=window, masked=True)
+            row_in_window = row - window.row_off
+            col_in_window = col - window.col_off
+
+            # Compute slope
+            dy, dx = np.gradient(dem.filled(np.nan).astype("float"), pixel_size)
             slope_rad = np.arctan(np.sqrt(dx**2 + dy**2))
             slope_deg = np.degrees(slope_rad)
 
+            # Identify rocky outcrops
             rocky_mask = slope_deg > rock_threshold
             rocky_mask = binary_closing(rocky_mask, structure=np.ones((kernel_size, kernel_size)))
-            # If no rocky outcrop pixel in the patch, return NaN
             if not rocky_mask.any():
                 return np.nan
 
             distance_from_rock = distance_transform_edt(1 - rocky_mask, sampling=[pixel_size, pixel_size])
-
-            # Determine the maximum searchable distance (half the patch width in meters)
-            max_distance = max(rows, cols) / 2 * pixel_size
-
-            dist = distance_from_rock[row, col]
-            # Assign NaN if no rocky pixel was found within the patch (i.e., dist == max_distance)
+            max_distance = window_size_m / 2
+            dist = distance_from_rock[row_in_window, col_in_window]
             return np.nan if dist >= max_distance else dist
-
     except Exception as e:
-        logger.error(f"Error in distance_to_rocky_outcrop: {e}")
+        logger.error(f"Error computing rocky outcrop distance: {e}")
         return None
 
 
