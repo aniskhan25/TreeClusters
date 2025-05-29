@@ -289,6 +289,107 @@ def distance_to_rocky_outcrop(
         return None
 
 
+# Additional feature computation function
+def compute_additional_features(row, output_dir):
+    features = {}
+    tif_filename = row['Filename']
+    if pd.isna(tif_filename):
+        return features
+
+    vmi_path = os.path.join(output_dir, "vmi", tif_filename)
+    dtw_path = os.path.join(output_dir, "dtw", tif_filename)
+    dem_path = os.path.join(output_dir, "dem", tif_filename)
+
+    window_size_m = 400
+    expected_res = 0.25
+    threshold = 10
+    rock_threshold = 30
+    kernel_size = 3
+
+    try:
+        with rasterio.open(vmi_path) as vmi_src:
+            pixel_size = vmi_src.res[0]
+            window_size_pixels = int(window_size_m / pixel_size)
+            half_window = window_size_pixels // 2
+            row_idx, col_idx = vmi_src.index(row['x'], row['y'])
+
+            col_start = max(0, col_idx - half_window)
+            row_start = max(0, row_idx - half_window)
+            col_end = min(vmi_src.width, col_idx + half_window)
+            row_end = min(vmi_src.height, row_idx + half_window)
+
+            if col_end <= col_start or row_end <= row_start:
+                return features
+
+            window = rasterio.windows.Window(col_start, row_start, col_end - col_start, row_end - row_start)
+            canopy = vmi_src.read(1, window=window, masked=True)
+            valid_canopy = canopy[canopy != 32767]
+            features['avg_canopy_cover'] = float(np.mean(valid_canopy))
+            features['std_canopy_cover'] = float(np.std(valid_canopy))
+            forest_mask = (valid_canopy >= threshold)
+            features['prop_forested_area'] = float(np.sum(forest_mask) / forest_mask.size)
+            labeled, num_patches = label(forest_mask, return_num=True)
+            features['num_forest_patches'] = num_patches
+            edge_mask = forest_mask ^ binary_erosion(forest_mask, structure=np.ones((kernel_size, kernel_size)))
+            features['edge_density'] = float(np.sum(edge_mask) / forest_mask.size)
+    except:
+        pass
+
+    try:
+        with rasterio.open(dtw_path) as dtw_src:
+            pixel_size = dtw_src.res[0]
+            window_size_pixels = int(window_size_m / pixel_size)
+            half_window = window_size_pixels // 2
+            row_idx, col_idx = dtw_src.index(row['x'], row['y'])
+
+            col_start = max(0, col_idx - half_window)
+            row_start = max(0, row_idx - half_window)
+            col_end = min(dtw_src.width, col_idx + half_window)
+            row_end = min(dtw_src.height, row_idx + half_window)
+
+            if col_end <= col_start or row_end <= row_start:
+                return features
+
+            window = rasterio.windows.Window(col_start, row_start, col_end - col_start, row_end - row_start)
+            dtw = dtw_src.read(1, window=window, masked=True)
+            dtw_data = dtw.filled(np.nan)
+            features['prop_wetland_area'] = float(np.sum(dtw_data < 1) / dtw_data.size)
+            features['avg_dtw'] = float(np.nanmean(dtw_data))
+            features['std_dtw'] = float(np.nanstd(dtw_data))
+    except:
+        pass
+
+    try:
+        with rasterio.open(dem_path) as dem_src:
+            pixel_size = dem_src.res[0]
+            window_size_pixels = int(window_size_m / pixel_size)
+            half_window = window_size_pixels // 2
+            row_idx, col_idx = dem_src.index(row['x'], row['y'])
+
+            col_start = max(0, col_idx - half_window)
+            row_start = max(0, row_idx - half_window)
+            col_end = min(dem_src.width, col_idx + half_window)
+            row_end = min(dem_src.height, row_idx + half_window)
+
+            if col_end <= col_start or row_end <= row_start:
+                return features
+
+            window = rasterio.windows.Window(col_start, row_start, col_end - col_start, row_end - row_start)
+            dem = dem_src.read(1, window=window, masked=True)
+            dem_data = dem.filled(np.nan)
+            features['avg_elevation'] = float(np.nanmean(dem_data))
+
+            dy, dx = np.gradient(dem_data, pixel_size)
+            slope = np.degrees(np.arctan(np.sqrt(dx**2 + dy**2)))
+            features['avg_slope'] = float(np.nanmean(slope))
+            features['std_slope'] = float(np.nanstd(slope))
+            features['prop_rocky_outcrops'] = float(np.sum(slope > rock_threshold) / slope.size)
+    except:
+        pass
+
+    return features
+
+
 def compute_all_distances(args):
     row, output_dir = args
     results = {}
@@ -338,6 +439,9 @@ def compute_all_distances(args):
                 logger.error(f"Error computing wetland distance: {e}")
                 results['distance_to_nearest_wetland'] = None
 
+    # Append additional features
+    additional = compute_additional_features(row, output_dir)
+    results.update(additional)
     return results
 
 
@@ -405,5 +509,7 @@ Usage:
 python ./src/distances.py --data-path ./output/clusters.csv --output-dir ./output
 
 sbatch ~/TreeClusters/scripts/run_distances.sh lumi
+
+scp rahmanan@lumi.csc.fi:/scratch/project_462000684/rahmanan/tree_clusters/output/clusters_with_distance.csv ~/Documents/TreeClusters/output
 
 '''
