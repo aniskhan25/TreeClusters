@@ -218,8 +218,7 @@ def distance_to_nearest_wetland(
             else:
                 dtw = np.ma.masked_values(dtw, [32767, -32768])
 
-            dtw_filled = dtw.filled(wetland_threshold + 1)
-            wetland_mask = (dtw_filled < wetland_threshold).astype(np.uint8)
+            wetland_mask = np.where((dtw < wetland_threshold) & (~dtw.mask), 1, 0).astype(np.uint8)
             if not wetland_mask.any():
                 return np.nan
 
