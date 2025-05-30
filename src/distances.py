@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from scipy.ndimage import distance_transform_edt, binary_closing, binary_opening, binary_erosion
-from skimage.measure import label
+from skimage.measure import label as sk_label
 from skimage.morphology import remove_small_holes
 from rasterio.warp import reproject, Resampling
 
@@ -116,7 +116,7 @@ def distance_to_forest_edge(
         forest_mask = binary_opening(forest_mask, structure=np.ones((kernel_size, kernel_size)))
 
         # Label and filter small forest patches
-        labeled_forest, num_features = label(forest_mask, return_num=True)
+        labeled_forest, num_features = sk_label(forest_mask, return_num=True)
         cleaned_forest_mask = np.zeros_like(forest_mask)
         for i in range(1, num_features + 1):
             component = labeled_forest == i
