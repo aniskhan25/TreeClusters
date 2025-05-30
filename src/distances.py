@@ -352,7 +352,7 @@ def compute_additional_features(row, output_dir):
 
             window = rasterio.windows.Window(col_start, row_start, col_end - col_start, row_end - row_start)
             dtw = dtw_src.read(1, window=window, masked=True)
-            dtw_data = np.ma.masked_equal(dtw, dtw_src.nodata)
+            dtw_data = np.ma.masked_equal(dtw, 32767)
             valid_mask = ~dtw_data.mask
             if np.sum(valid_mask) > 0:
                 features['prop_wetland_area'] = float(np.sum((dtw_data < 1) & valid_mask) / np.sum(valid_mask))
