@@ -157,6 +157,14 @@ def distance_to_forest_edge(
         dist = adjusted_dist[row_in_window, col_in_window]
         return np.nan if dist >= max_distance else dist
 
+
+import numpy as np
+import rasterio
+from scipy.ndimage import distance_transform_edt
+import logging
+
+logger = logging.getLogger(__name__)
+
 def distance_to_nearest_wetland(
     dtw_path, longitude, latitude, wetland_threshold=1, window_size_m=1000, expected_res=0.25
 ):
@@ -203,8 +211,12 @@ def distance_to_nearest_wetland(
             )
 
             dtw = src.read(1, window=window, masked=True)
-            row_in_window = row - window.row_off
-            col_in_window = col - window.col_off
+
+            # Use raster's nodata value if defined, otherwise mask known invalid values
+            if src.nodata is not None:
+                dtw = np.ma.masked_equal(dtw, src.nodata)
+            else:
+                dtw = np.ma.masked_values(dtw, [32767, -32768])
 
             dtw_filled = dtw.filled(wetland_threshold + 1)
             wetland_mask = (dtw_filled < wetland_threshold).astype(np.uint8)
@@ -213,12 +225,14 @@ def distance_to_nearest_wetland(
 
             distance_to_wetland = distance_transform_edt(1 - wetland_mask, sampling=[pixel_size, pixel_size])
             max_distance = window_size_m / 2
+            row_in_window = row - window.row_off
+            col_in_window = col - window.col_off
             dist = distance_to_wetland[row_in_window, col_in_window]
             return np.nan if dist >= max_distance else dist
     except Exception as e:
         logger.error(f"Error computing wetland distance: {e}")
         return None
-
+    
 def distance_to_rocky_outcrop(
     dem_path, longitude, latitude, rock_threshold=30, kernel_size=3, window_size_m=500, expected_res=0.25
 ):
@@ -289,7 +303,15 @@ def distance_to_rocky_outcrop(
         return None
 
 
-# Additional feature computation function
+import numpy as np
+import rasterio
+from scipy.ndimage import label, binary_erosion
+import os
+import pandas as pd
+import logging
+
+logger = logging.getLogger(__name__)
+
 def compute_additional_features(row, output_dir):
     features = {}
     tif_filename = row['Filename']
@@ -306,6 +328,7 @@ def compute_additional_features(row, output_dir):
     rock_threshold = 30
     kernel_size = 3
 
+    # Process VMI (canopy) data
     try:
         with rasterio.open(vmi_path) as vmi_src:
             pixel_size = vmi_src.res[0]
@@ -335,6 +358,7 @@ def compute_additional_features(row, output_dir):
     except:
         pass
 
+    # Process DTW data with improved masking
     try:
         with rasterio.open(dtw_path) as dtw_src:
             pixel_size = dtw_src.res[0]
@@ -352,22 +376,33 @@ def compute_additional_features(row, output_dir):
 
             window = rasterio.windows.Window(col_start, row_start, col_end - col_start, row_end - row_start)
             dtw = dtw_src.read(1, window=window, masked=True)
-            dtw_data = np.ma.masked_equal(dtw, 32767)
+
+            # Use raster's nodata value if defined, otherwise mask known invalid values
+            if dtw_src.nodata is not None:
+                dtw_data = np.ma.masked_equal(dtw, dtw_src.nodata)
+                logger.debug(f"Using nodata value from metadata: {dtw_src.nodata}")
+            else:
+                dtw_data = np.ma.masked_values(dtw, [32767, -32768])
+                logger.debug("No nodata value in metadata; masking 32767 and -32768")
+
             valid_mask = ~dtw_data.mask
             if np.any(valid_mask):
-                wetland_count = np.count_nonzero((dtw_data < 1) & valid_mask)
-                valid_count = np.count_nonzero(valid_mask)
-                features['prop_wetland_area'] = float(wetland_count / valid_count)
                 valid_dtw = dtw_data[valid_mask].astype(np.float32)
+                logger.debug(f"Valid DTW pixels: {valid_dtw.size}, range: {valid_dtw.min()} to {valid_dtw.max()}")
+                wetland_count = np.count_nonzero((valid_dtw < 1) & ~np.isnan(valid_dtw))
+                valid_count = np.count_nonzero(~np.isnan(valid_dtw))
+                features['prop_wetland_area'] = float(wetland_count / valid_count)
                 features['avg_dtw'] = float(valid_dtw.mean())
                 features['std_dtw'] = float(valid_dtw.std())
             else:
+                logger.debug("No valid DTW pixels in window")
                 features['prop_wetland_area'] = np.nan
                 features['avg_dtw'] = np.nan
                 features['std_dtw'] = np.nan
     except:
         pass
 
+    # Process DEM (elevation) data
     try:
         with rasterio.open(dem_path) as dem_src:
             pixel_size = dem_src.res[0]
@@ -397,7 +432,6 @@ def compute_additional_features(row, output_dir):
         pass
 
     return features
-
 
 def compute_all_distances(args):
     row, output_dir = args
