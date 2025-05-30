@@ -354,10 +354,12 @@ def compute_additional_features(row, output_dir):
             dtw = dtw_src.read(1, window=window, masked=True)
             dtw_data = np.ma.masked_equal(dtw, 32767)
             valid_mask = ~dtw_data.mask
-            if np.sum(valid_mask) > 0:
-                features['prop_wetland_area'] = float(np.sum((dtw_data < 1) & valid_mask) / np.sum(valid_mask))
-                features['avg_dtw'] = float(dtw_data.mean())
-                features['std_dtw'] = float(dtw_data.std())
+            if np.any(valid_mask):
+                wetland_count = np.count_nonzero((dtw_data < 1) & valid_mask)
+                valid_count = np.count_nonzero(valid_mask)
+                features['prop_wetland_area'] = float(wetland_count / valid_count)
+                features['avg_dtw'] = float(dtw_data[valid_mask].mean())
+                features['std_dtw'] = float(dtw_data[valid_mask].std())
             else:
                 features['prop_wetland_area'] = np.nan
                 features['avg_dtw'] = np.nan
