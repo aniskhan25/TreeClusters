@@ -352,10 +352,16 @@ def compute_additional_features(row, output_dir):
 
             window = rasterio.windows.Window(col_start, row_start, col_end - col_start, row_end - row_start)
             dtw = dtw_src.read(1, window=window, masked=True)
-            dtw_data = dtw.filled(np.nan)
-            features['prop_wetland_area'] = float(np.sum(dtw_data < 1) / dtw_data.size)
-            features['avg_dtw'] = float(np.nanmean(dtw_data))
-            features['std_dtw'] = float(np.nanstd(dtw_data))
+            dtw_data = np.ma.masked_equal(dtw, dtw_src.nodata)
+            valid_mask = ~dtw_data.mask
+            if np.sum(valid_mask) > 0:
+                features['prop_wetland_area'] = float(np.sum((dtw_data < 1) & valid_mask) / np.sum(valid_mask))
+                features['avg_dtw'] = float(dtw_data.mean())
+                features['std_dtw'] = float(dtw_data.std())
+            else:
+                features['prop_wetland_area'] = np.nan
+                features['avg_dtw'] = np.nan
+                features['std_dtw'] = np.nan
     except:
         pass
 
