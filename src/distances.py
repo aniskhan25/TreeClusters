@@ -222,7 +222,8 @@ def distance_to_nearest_wetland(
             if not wetland_mask.any():
                 return np.nan
 
-            distance_to_wetland = distance_transform_edt(1 - wetland_mask.astype(np.uint8), sampling=(pixel_size, pixel_size))
+            # Use tuple instead of list for sampling
+            distance_to_wetland = distance_transform_edt(1 - wetland_mask, sampling=(pixel_size, pixel_size))
             max_distance = window_size_m / 2
             row_in_window = row - window.row_off
             col_in_window = col - window.col_off
@@ -231,6 +232,7 @@ def distance_to_nearest_wetland(
     except Exception as e:
         logger.error(f"Error computing wetland distance: {e}")
         return None
+    
     
 def distance_to_rocky_outcrop(
     dem_path, longitude, latitude, rock_threshold=30, kernel_size=3, window_size_m=500, expected_res=0.25
