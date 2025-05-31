@@ -4,6 +4,12 @@ import logging
 import argparse
 import rasterio
 
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler()]
+)
+
 import numpy as np
 import pandas as pd
 
@@ -16,7 +22,10 @@ from tqdm import tqdm
 from multiprocessing import Pool, cpu_count
 
 
+
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s")
+logger.setLevel(logging.DEBUG)
 
 
 def distance_to_forest_edge(
