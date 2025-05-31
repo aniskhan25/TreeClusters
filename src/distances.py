@@ -227,9 +227,15 @@ def distance_to_nearest_wetland(
             else:
                 dtw = np.ma.masked_values(dtw, [32767, -32768])
 
-            wetland_mask = ((dtw < wetland_threshold) & (~dtw.mask)).astype(np.uint8)
-            input_array = np.asarray(1 - wetland_mask, dtype=np.uint8)
-            logger.debug(f"Input to distance_transform_edt has shape: {input_array.shape}, dtype: {input_array.dtype}")
+            if dtw.mask.shape != dtw.shape:
+                logger.warning("Mask shape does not match data shape; resetting mask")
+                dtw.mask = np.zeros_like(dtw, dtype=bool)
+
+            wetland_mask = np.where((dtw < wetland_threshold) & (~dtw.mask), 1, 0).astype(np.uint8)
+            input_array = 1 - wetland_mask
+            logger.debug(f"Distance transform input shape: {input_array.shape}, sampling: {[pixel_size, pixel_size]}, dtype: {input_array.dtype}")
+            assert input_array.ndim == 2, "Input array to distance_transform_edt must be 2D"
+            assert len([pixel_size, pixel_size]) == input_array.ndim, "Sampling dimensions must match array dimensions"
             if not wetland_mask.any():
                 return np.nan
             try:
@@ -242,6 +248,7 @@ def distance_to_nearest_wetland(
             row_in_window = row - window.row_off
             col_in_window = col - window.col_off
             dist = distance_to_wetland[row_in_window, col_in_window]
+            logger.debug(f"Computed distance to wetland at ({row_in_window}, {col_in_window}): {dist}")
             return np.nan if dist >= max_distance else dist
     except Exception as e:
         logger.error(f"Error computing wetland distance: {e}")
