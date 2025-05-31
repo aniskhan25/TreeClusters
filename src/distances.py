@@ -225,19 +225,26 @@ def distance_to_nearest_wetland(
             if src.nodata is not None:
                 dtw = np.ma.masked_equal(dtw, src.nodata)
             else:
-                dtw = np.ma.masked_values(dtw, [32767, -32768])
+                # more robust: also mask 32767, -32768, 65535
+                dtw = np.ma.masked_where(np.isin(dtw, [32767, -32768, 65535]), dtw)
 
+            # Safer mask shape check
             if dtw.mask.shape != dtw.shape:
-                logger.warning("Mask shape does not match data shape; resetting mask")
-                dtw.mask = np.zeros_like(dtw, dtype=bool)
+                logger.warning("Mask shape does not match data shape; skipping masking correction to avoid data corruption")
 
             wetland_mask = np.where((dtw < wetland_threshold) & (~dtw.mask), 1, 0).astype(np.uint8)
+
+            # Diagnostics just before distance_transform_edt
+            logger.debug(f"DTW min: {dtw.min()}, max: {dtw.max()}, wetland_threshold: {wetland_threshold}")
+            logger.debug(f"Nonzero wetland pixels: {np.count_nonzero(wetland_mask)}")
+            if not wetland_mask.any():
+                logger.warning("No wetlands detected in the window. Check threshold or raster data.")
+                return np.nan
+
             input_array = 1 - wetland_mask
             logger.debug(f"Distance transform input shape: {input_array.shape}, sampling: {[pixel_size, pixel_size]}, dtype: {input_array.dtype}")
             assert input_array.ndim == 2, "Input array to distance_transform_edt must be 2D"
             assert len([pixel_size, pixel_size]) == input_array.ndim, "Sampling dimensions must match array dimensions"
-            if not wetland_mask.any():
-                return np.nan
             try:
                 distance_to_wetland = distance_transform_edt(input_array, sampling=[pixel_size, pixel_size])
             except Exception as e:
@@ -417,8 +424,8 @@ def compute_additional_features(row, output_dir):
                 dtw_data = np.ma.masked_equal(dtw, dtw_src.nodata)
                 logger.debug(f"Using nodata value from metadata: {dtw_src.nodata}")
             else:
-                dtw_data = np.ma.masked_values(dtw, [32767, -32768])
-                logger.debug("No nodata value in metadata; masking 32767 and -32768")
+                dtw_data = np.ma.masked_where(np.isin(dtw, [32767, -32768, 65535]), dtw)
+                logger.debug("No nodata value in metadata; masking 32767, -32768 and 65535")
 
             valid_mask = ~dtw_data.mask
             if np.any(valid_mask):
