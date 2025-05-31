@@ -335,7 +335,20 @@ import logging
 logger = logging.getLogger(__name__)
 
 def compute_additional_features(row, output_dir):
-    features = {}
+    features = {
+        'avg_canopy_cover': np.nan,
+        'std_canopy_cover': np.nan,
+        'prop_forested_area': np.nan,
+        'num_forest_patches': np.nan,
+        'edge_density': np.nan,
+        'prop_wetland_area': np.nan,
+        'avg_dtw': np.nan,
+        'std_dtw': np.nan,
+        'avg_elevation': np.nan,
+        'avg_slope': np.nan,
+        'std_slope': np.nan,
+        'prop_rocky_outcrops': np.nan
+    }
     tif_filename = row['Filename']
     if pd.isna(tif_filename):
         return features
@@ -527,7 +540,9 @@ def add_distance_column_to_cluster_df(cluster_df, mapping_csv_path, output_dir, 
         results = list(tqdm(pool.imap(compute_all_distances, args), total=len(merged_df), desc="Computing distances"))
 
     distances_df = pd.DataFrame(results, index=merged_df.index)
+    logger.debug(f"Columns in computed distances: {distances_df.columns.tolist()}")
     merged_df = pd.concat([merged_df, distances_df], axis=1)
+    logger.debug(f"Final merged DataFrame columns: {merged_df.columns.tolist()}")
     return merged_df
 
 
