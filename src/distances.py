@@ -222,8 +222,18 @@ def distance_to_nearest_wetland(
             if not wetland_mask.any():
                 return np.nan
 
-            # Use tuple instead of list for sampling
-            distance_to_wetland = distance_transform_edt(1 - wetland_mask, sampling=(pixel_size, pixel_size))
+            # Logging for debugging broadcasting errors
+            logger.debug(f"wetland_mask dtype: {wetland_mask.dtype}, shape: {wetland_mask.shape}")
+            logger.debug(f"Sampling: {[pixel_size, pixel_size]}")
+            logger.debug(f"Max wetland_mask value: {wetland_mask.max()}, Min: {wetland_mask.min()}")
+            logger.debug(f"Distance transform input shape: {(1 - wetland_mask).shape}")
+
+            try:
+                distance_to_wetland = distance_transform_edt(1 - wetland_mask, sampling=[pixel_size, pixel_size])
+            except Exception as e:
+                logger.exception("Error in distance_transform_edt for wetland mask")
+                return np.nan
+
             max_distance = window_size_m / 2
             row_in_window = row - window.row_off
             col_in_window = col - window.col_off
