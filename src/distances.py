@@ -391,7 +391,8 @@ def compute_additional_features(row, output_dir):
             valid_canopy = canopy[canopy != 32767]
             features['avg_canopy_cover'] = float(np.mean(valid_canopy))
             features['std_canopy_cover'] = float(np.std(valid_canopy))
-            forest_mask = (valid_canopy >= threshold)
+            canopy_data = canopy.filled(32767)  # Replace masked values
+            forest_mask = (canopy_data >= threshold) & (canopy_data != 32767)
             features['prop_forested_area'] = float(np.sum(forest_mask) / forest_mask.size)
             labeled, num_patches = label(forest_mask)
             features['num_forest_patches'] = num_patches
