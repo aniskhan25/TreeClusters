@@ -393,9 +393,9 @@ def compute_additional_features(row, output_dir):
             features['std_canopy_cover'] = float(np.std(valid_canopy))
             forest_mask = (valid_canopy >= threshold)
             features['prop_forested_area'] = float(np.sum(forest_mask) / forest_mask.size)
-            labeled, num_patches = label(forest_mask, return_num=True)
+            labeled, num_patches = label(forest_mask)
             features['num_forest_patches'] = num_patches
-            edge_mask = forest_mask ^ binary_erosion(forest_mask, structure=np.ones((kernel_size, kernel_size)))
+            edge_mask = forest_mask ^ binary_erosion(forest_mask, structure=np.ones((kernel_size, kernel_size), dtype=bool))
             features['edge_density'] = float(np.sum(edge_mask) / forest_mask.size)
     except:
         pass
