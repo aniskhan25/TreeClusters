@@ -10,6 +10,9 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 
+# Sentinel value representing no valid feature found within window
+SENTINEL_DISTANCE = 32767  # Sentinel value representing no valid feature found within window
+
 import numpy as np
 import pandas as pd
 
@@ -78,7 +81,7 @@ def distance_to_forest_edge(
 
         # Ensure the point is within the raster bounds
         if row < 0 or row >= vmi_src.height or col < 0 or col >= vmi_src.width:
-            return np.nan
+            return SENTINEL_DISTANCE
 
         # Calculate window boundaries
         window_col_start = max(0, col - half_window)
@@ -88,7 +91,7 @@ def distance_to_forest_edge(
 
         # Ensure window has valid dimensions
         if window_col_end <= window_col_start or window_row_end <= window_row_start:
-            return np.nan
+            return SENTINEL_DISTANCE
 
         # Adjust window size if near boundaries
         window = rasterio.windows.Window(
@@ -140,7 +143,7 @@ def distance_to_forest_edge(
         eroded_forest = binary_erosion(forest_mask, structure=np.ones((kernel_size, kernel_size)))
         forest_edge = forest_mask ^ eroded_forest
         if not forest_edge.any():
-            return np.nan
+            return SENTINEL_DISTANCE
 
         # Compute distance transform to all edges
         dist_all = distance_transform_edt(1 - forest_edge, sampling=[pixel_size, pixel_size])
@@ -164,7 +167,7 @@ def distance_to_forest_edge(
         col_in_window = col - window.col_off
         max_distance = window_size_m / 2
         dist = adjusted_dist[row_in_window, col_in_window]
-        return np.nan if dist >= max_distance else dist
+        return SENTINEL_DISTANCE if dist >= max_distance else dist
 
 
 import numpy as np
@@ -203,7 +206,7 @@ def distance_to_nearest_wetland(
 
             row, col = src.index(longitude, latitude)
             if row < 0 or row >= src.height or col < 0 or col >= src.width:
-                return np.nan
+                return SENTINEL_DISTANCE
 
             # Define window bounds
             window_col_start = max(0, col - half_window)
@@ -212,7 +215,7 @@ def distance_to_nearest_wetland(
             window_row_end = min(src.height, row + half_window)
 
             if window_col_end <= window_col_start or window_row_end <= window_row_start:
-                return np.nan
+                return SENTINEL_DISTANCE
 
             window = rasterio.windows.Window(
                 window_col_start, window_row_start,
@@ -239,7 +242,7 @@ def distance_to_nearest_wetland(
             logger.debug(f"Nonzero wetland pixels: {np.count_nonzero(wetland_mask)}")
             if not wetland_mask.any():
                 logger.warning("No wetlands detected in the window. Check threshold or raster data.")
-                return np.nan
+                return SENTINEL_DISTANCE
 
             input_array = 1 - wetland_mask
             logger.debug(f"Distance transform input shape: {input_array.shape}, sampling: {[pixel_size, pixel_size]}, dtype: {input_array.dtype}")
@@ -249,14 +252,14 @@ def distance_to_nearest_wetland(
                 distance_to_wetland = distance_transform_edt(input_array, sampling=[pixel_size, pixel_size])
             except Exception as e:
                 logger.exception("Error in distance_transform_edt for wetland mask")
-                return np.nan
+                return SENTINEL_DISTANCE
 
             max_distance = window_size_m / 2
             row_in_window = row - window.row_off
             col_in_window = col - window.col_off
             dist = distance_to_wetland[row_in_window, col_in_window]
             logger.debug(f"Computed distance to wetland at ({row_in_window}, {col_in_window}): {dist}")
-            return np.nan if dist >= max_distance else dist
+            return SENTINEL_DISTANCE if dist >= max_distance else dist
     except Exception as e:
         logger.error(f"Error computing wetland distance: {e}")
         return None
@@ -292,7 +295,7 @@ def distance_to_rocky_outcrop(
 
             row, col = src.index(longitude, latitude)
             if row < 0 or row >= src.height or col < 0 or col >= src.width:
-                return np.nan
+                return SENTINEL_DISTANCE
 
             # Define window bounds
             window_col_start = max(0, col - half_window)
@@ -301,7 +304,7 @@ def distance_to_rocky_outcrop(
             window_row_end = min(src.height, row + half_window)
 
             if window_col_end <= window_col_start or window_row_end <= window_row_start:
-                return np.nan
+                return SENTINEL_DISTANCE
 
             window = rasterio.windows.Window(
                 window_col_start, window_row_start,
@@ -321,12 +324,12 @@ def distance_to_rocky_outcrop(
             rocky_mask = slope_deg > rock_threshold
             rocky_mask = binary_closing(rocky_mask, structure=np.ones((kernel_size, kernel_size)))
             if not rocky_mask.any():
-                return np.nan
+                return SENTINEL_DISTANCE
 
             distance_from_rock = distance_transform_edt(1 - rocky_mask, sampling=[pixel_size, pixel_size])
             max_distance = window_size_m / 2
             dist = distance_from_rock[row_in_window, col_in_window]
-            return np.nan if dist >= max_distance else dist
+            return SENTINEL_DISTANCE if dist >= max_distance else dist
     except Exception as e:
         logger.error(f"Error computing rocky outcrop distance: {e}")
         return None
